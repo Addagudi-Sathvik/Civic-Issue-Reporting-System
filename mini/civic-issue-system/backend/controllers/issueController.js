@@ -118,89 +118,139 @@ exports.updateIssueStatus = async (req, res) => {
 exports.validateImage = async (req, res) => {
   try {
     const { category } = req.body;
+
     if (!category) {
-      return res.status(400).json({ 
-        valid: false, 
-        category: null,
-        confidence: 0,
-        objects_detected: [],
-        message: 'Category is required for AI validation.' 
-      });
-    }
-
-    // Graceful fallback if NO key exists
-    if (!process.env.GEMINI_API_KEY) {
-       return res.status(200).json({ 
-         valid: true, 
-         category: category,
-         confidence: 85,
-         objects_detected: [],
-         message: "✅ Image verified (Simulated mode - Set GEMINI_API_KEY for real AI)" 
-       });
-    }
-
-    if (!req.file) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         valid: false,
         category: null,
         confidence: 0,
         objects_detected: [],
-        message: "No image file provided." 
+        message: "Category is required",
+      });
+    }
+
+    // Fallback (if Gemini key missing)
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(200).json({
+        valid: true,
+        category: category,
+        confidence: 80,
+        objects_detected: [],
+        message: "Simulated validation (no AI key)",
+      });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({
+        valid: false,
+        category: null,
+        confidence: 0,
+        objects_detected: [],
+        message: "No image uploaded",
       });
     }
 
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-    const prompt = `STRICTLY analyze this image and classify it into EXACTLY ONE category. Return ONLY valid JSON.
-
-CATEGORIES (choose exactly one):
-- "ROADS": Potholes, cracks, damaged roads, road damage
-- "GARBAGE": Trash piles, litter, waste, garbage accumulation
-- "ELECTRICITY": Broken streetlights, electrical poles, power line issues
-- "WATER": Flooding, water leaks, pipe bursts, water issues
-- "OTHER": Unclear or doesn't fit above
-
-Return ONLY this JSON (no extra text):
+    const prompt = `
+Analyze this image and return ONLY JSON:
 {
   "category": "ROADS|GARBAGE|ELECTRICITY|WATER|OTHER",
-  "confidence": 0-100,
-  "objects_detected": ["object1", "object2"],
-  "reason": "brief reason"
-}`;
+  "confidence": number,
+  "objects_detected": ["object1", "object2"]
+}
+`;
 
     const imageParts = [
       fileToGenerativePart(req.file.path, req.file.mimetype),
     ];
 
-    let result;
-    let responseText = "";
-    let retries = 3;
-    let delay = 1000;
+    const result = await model.generateContent([prompt, ...imageParts]);
+    let responseText = result.response.text().trim();
 
-    while (retries > 0) {
-      try {
-        result = await model.generateContent([prompt, ...imageParts]);
-        responseText = result.response.text().trim();
-        break; // Success, exit retry loop
-      } catch (err) {
-        console.warn(`AI API call failed. Retries left: ${retries - 1}`, err.message);
-        retries--;
-        if (retries === 0) {
-          return res.status(502).json({
-            valid: false,
-            category: null,
-            confidence: 0,
-            objects_detected: [],
-            message: 'AI service is temporarily unavailable. Please try again later.'
-          });
-        }
-        await new Promise(resolve => setTimeout(resolve, delay));
-        delay *= 2; // Exponential backoff
-      }
+    // Clean markdown if present
+    if (responseText.includes("```")) {
+      responseText = responseText.replace(/```json/gi, "").replace(/```/gi, "").trim();
     }
 
-    // Clean up Markdown formatting
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error("Invalid AI response");
+
+    const aiData = JSON.parse(jsonMatch[0]);
+
+    // Normalize
+    const normalize = (text) => text.toLowerCase().trim();
+
+    let mappedCategory = (aiData.category || "OTHER").toUpperCase();
+
+    if (mappedCategory.includes("ROAD")) mappedCategory = "ROADS";
+    else if (mappedCategory.includes("GARBAGE") || mappedCategory.includes("TRASH")) mappedCategory = "GARBAGE";
+    else if (mappedCategory.includes("ELECTR")) mappedCategory = "ELECTRICITY";
+    else if (mappedCategory.includes("WATER") || mappedCategory.includes("FLOOD")) mappedCategory = "WATER";
+    else mappedCategory = "OTHER";
+
+    const confidence = Number(aiData.confidence) || 0;
+    const objects = aiData.objects_detected || [];
+
+    // Keyword matching
+    const categoryKeywords = {
+      ROADS: ["road", "pothole", "crack", "damage"],
+      GARBAGE: ["garbage", "trash", "waste", "plastic", "litter"],
+      WATER: ["water", "leak", "pipe", "flood"],
+      ELECTRICITY: ["electric", "wire", "pole", "light"],
+    };
+
+    const userCategory = category.toUpperCase();
+    const keywords = categoryKeywords[userCategory] || [];
+
+    const keywordMatch = objects.some(obj =>
+      keywords.some(keyword =>
+        normalize(obj).includes(keyword)
+      )
+    );
+
+    // Final decision (flexible)
+    let isValid = false;
+
+    if (mappedCategory === userCategory) {
+      isValid = confidence >= 40;
+    } else if (keywordMatch) {
+      isValid = confidence >= 35;
+    } else if (mappedCategory === "OTHER") {
+      isValid = confidence >= 30;
+    }
+
+    if (!isValid) {
+      return res.status(200).json({
+        valid: false,
+        category: mappedCategory,
+        confidence,
+        objects_detected: objects,
+        message: "❌ Image does not clearly match category",
+      });
+    }
+
+    return res.status(200).json({
+      valid: true,
+      category: mappedCategory,
+      confidence,
+      objects_detected: objects,
+      message: `✅ Image verified (${confidence}% confidence)`,
+    });
+
+  } catch (error) {
+    console.error("Validation error:", error);
+
+    return res.status(500).json({
+      valid: false,
+      category: null,
+      confidence: 0,
+      objects_detected: [],
+      message: "Server error during validation",
+    });
+  }
+};    // Clean up Markdown formatting
     if (responseText.includes('```')) {
        responseText = responseText.replace(/```json/gi, '').replace(/```/gi, '').trim();
     }
