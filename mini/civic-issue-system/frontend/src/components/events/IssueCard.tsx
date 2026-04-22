@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { MapPin, Clock, ThumbsUp, Eye, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
+import { MapPin, Clock, ThumbsUp, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
 import { useState } from "react";
 
 interface Issue {
@@ -27,13 +27,17 @@ interface IssueCardProps {
   onSupport: () => void;
 }
 
+// ✅ BASE URL (works in local + production)
+const BASE_URL =
+  process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:5000";
+
 const getStatusIcon = (status: string) => {
   switch (status) {
-    case 'PENDING':
+    case "PENDING":
       return <Clock size={16} className="text-yellow-500" />;
-    case 'VERIFIED':
+    case "VERIFIED":
       return <CheckCircle size={16} className="text-blue-500" />;
-    case 'RESOLVED':
+    case "RESOLVED":
       return <CheckCircle size={16} className="text-green-500" />;
     default:
       return <XCircle size={16} className="text-red-500" />;
@@ -42,35 +46,35 @@ const getStatusIcon = (status: string) => {
 
 const getStatusColor = (status: string) => {
   switch (status) {
-    case 'PENDING':
-      return 'bg-yellow-500/20 text-yellow-700 border-yellow-500/30';
-    case 'VERIFIED':
-      return 'bg-blue-500/20 text-blue-700 border-blue-500/30';
-    case 'RESOLVED':
-      return 'bg-green-500/20 text-green-700 border-green-500/30';
+    case "PENDING":
+      return "bg-yellow-500/20 text-yellow-700 border-yellow-500/30";
+    case "VERIFIED":
+      return "bg-blue-500/20 text-blue-700 border-blue-500/30";
+    case "RESOLVED":
+      return "bg-green-500/20 text-green-700 border-green-500/30";
     default:
-      return 'bg-red-500/20 text-red-700 border-red-500/30';
+      return "bg-red-500/20 text-red-700 border-red-500/30";
   }
 };
 
 const getPriorityColor = (priority: string) => {
   switch (priority) {
-    case 'HIGH':
-      return 'bg-red-500/20 text-red-700';
-    case 'MEDIUM':
-      return 'bg-yellow-500/20 text-yellow-700';
+    case "HIGH":
+      return "bg-red-500/20 text-red-700";
+    case "MEDIUM":
+      return "bg-yellow-500/20 text-yellow-700";
     default:
-      return 'bg-green-500/20 text-green-700';
+      return "bg-green-500/20 text-green-700";
   }
 };
 
 const getCategoryDisplay = (category: string) => {
   const categoryMap: { [key: string]: string } = {
-    'ROADS': 'Roads & Transport',
-    'GARBAGE': 'Waste & Garbage',
-    'ELECTRICITY': 'Electricity',
-    'WATER': 'Water Management',
-    'OTHER': 'Other Issues'
+    ROADS: "Roads & Transport",
+    GARBAGE: "Waste & Garbage",
+    ELECTRICITY: "Electricity",
+    WATER: "Water Management",
+    OTHER: "Other Issues",
   };
   return categoryMap[category] || category;
 };
@@ -94,8 +98,8 @@ export default function IssueCard({ issue, onSupport }: IssueCardProps) {
     const diffTime = Math.abs(now.getTime() - date.getTime());
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-    if (diffDays === 1) return 'Today';
-    if (diffDays === 2) return 'Yesterday';
+    if (diffDays === 1) return "Today";
+    if (diffDays === 2) return "Yesterday";
     if (diffDays <= 7) return `${diffDays - 1} days ago`;
     return date.toLocaleDateString();
   };
@@ -111,7 +115,7 @@ export default function IssueCard({ issue, onSupport }: IssueCardProps) {
       {issue.media && issue.media.length > 0 && !imageError ? (
         <div className="w-full h-32 rounded-lg overflow-hidden mb-4 bg-slate-100">
           <img
-            src={`http://localhost:5000${issue.media[0]}`}
+            src={`${BASE_URL}${issue.media[0]}`} // ✅ FIXED
             alt={issue.title}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
             onError={() => setImageError(true)}
@@ -123,7 +127,7 @@ export default function IssueCard({ issue, onSupport }: IssueCardProps) {
         </div>
       )}
 
-      {/* Category Badge */}
+      {/* Category + Priority */}
       <div className="flex items-center justify-between mb-3">
         <span className="px-3 py-1 bg-primary/20 text-primary text-xs font-semibold rounded-full">
           {getCategoryDisplay(issue.category)}
@@ -143,16 +147,19 @@ export default function IssueCard({ issue, onSupport }: IssueCardProps) {
         {issue.description}
       </p>
 
-      {/* Status and Distance */}
+      {/* Status + Distance */}
       <div className="flex items-center justify-between mb-4">
         <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(issue.status)}`}>
           {getStatusIcon(issue.status)}
           {issue.status}
         </div>
+
         {issue.distance !== undefined && (
           <div className="flex items-center gap-1 text-xs text-foreground/60">
             <MapPin size={12} />
-            {issue.distance < 1 ? `${(issue.distance * 1000).toFixed(0)}m` : `${issue.distance.toFixed(1)}km`}
+            {issue.distance < 1
+              ? `${(issue.distance * 1000).toFixed(0)}m`
+              : `${issue.distance.toFixed(1)}km`}
           </div>
         )}
       </div>
@@ -178,8 +185,8 @@ export default function IssueCard({ issue, onSupport }: IssueCardProps) {
           disabled={isSupporting}
           className="flex items-center gap-2 px-3 py-2 bg-primary/20 hover:bg-primary/30 text-primary text-xs font-semibold rounded-lg transition-colors disabled:opacity-50"
         >
-          <ThumbsUp size={14} className={isSupporting ? 'animate-pulse' : ''} />
-          {isSupporting ? 'Supporting...' : 'Support'}
+          <ThumbsUp size={14} className={isSupporting ? "animate-pulse" : ""} />
+          {isSupporting ? "Supporting..." : "Support"}
         </button>
       </div>
     </motion.div>
