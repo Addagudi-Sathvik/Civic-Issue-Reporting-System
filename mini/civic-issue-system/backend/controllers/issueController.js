@@ -1,357 +1,321 @@
-const Issue = require('../models/Issue');
-const User = require('../models/User');
-const ActivityLog = require('../models/ActivityLog');
-const fs = require('fs');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-const { sendNotification } = require('../services/notificationService');
+// backend/controllers/issueController.js
+const Issue = require("../models/Issue");
+const User = require("../models/User");
 
-// --- Helper Functions ---
+// ─── GET /api/issues  ─────────────────────────────────────────────────────────
+// Citizen: sees only their own issues
+// Department: sees issues in their department
+// Admin: sees all issues
+const getIssues = async (req, res) => {
+  const { status, category, priority, page = 1, limit = 10 } = req.query;
 
-function fileToGenerativePart(filePath, mimeType) {
-    return {
-        inlineData: {
-            data: Buffer.from(fs.readFileSync(filePath)).toString("base64"),
-            mimeType
-        },
-    };
-}
+  // BUG FIX: original code had no role filtering — citizens could see all issues
+  let filter = {};
 
-function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
-    var R = 6371; 
-    var dLat = deg2rad(lat2 - lat1);
-    var dLon = deg2rad(lon2 - lon1);
-    var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) *
-        Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return R * c;
-}
-
-function deg2rad(deg) { return deg * (Math.PI / 180) }
-
-function calculatePriority(votes) {
-    if (votes >= 20) return 'HIGH';
-    if (votes >= 5) return 'MEDIUM';
-    return 'LOW';
-}
-
-// --- Controller Endpoints ---
-
-exports.createIssue = async (req, res) => {
-    try {
-        let { title, description, category, location } = req.body;
-
-        if (typeof location === 'string') {
-            try {
-                location = JSON.parse(location);
-            } catch (err) {
-                console.error("Error parsing location:", err);
-            }
-        }
-
-        let media = [];
-        if (req.files && req.files.length > 0) {
-            media = req.files.map(file => `/uploads/${file.filename}`);
-        } else if (req.body.media) {
-            media = Array.isArray(req.body.media) ? req.body.media : [req.body.media];
-        }
-
-        const issue = new Issue({
-            title,
-            description,
-            category,
-            location,
-            media,
-            reporterId: req.user.userId,
-            status: 'PENDING_VERIFICATION',
-            verificationStatus: 'PENDING',
-        });
-
-        await issue.save();
-
-        // Award Gamification Points: +60
-        await User.findByIdAndUpdate(req.user.userId, { $inc: { points: 60 } });
-
-        res.status(201).json(issue);
-    } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message });
+  if (req.user.role === "citizen") {
+    filter.reportedBy = req.user._id;
+  } else if (req.user.role === "department") {
+    if (!req.user.department) {
+      return res.status(400).json({
+        success: false,
+        message: "Department user has no department assigned.",
+      });
     }
+    filter.department = req.user.department;
+  }
+  // admin: no filter — sees all
+
+  if (status) filter.status = status;
+  if (category) filter.category = category;
+  if (priority) filter.priority = priority;
+
+  const skip = (Number(page) - 1) * Number(limit);
+  const total = await Issue.countDocuments(filter);
+
+  const issues = await Issue.find(filter)
+    .populate("reportedBy", "name email")
+    .populate("assignedTo", "name email department")
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(Number(limit));
+
+  res.status(200).json({
+    success: true,
+    count: issues.length,
+    total,
+    totalPages: Math.ceil(total / Number(limit)),
+    currentPage: Number(page),
+    issues,
+  });
 };
 
-exports.getIssues = async (req, res) => {
-    try {
-        const issues = await Issue.find()
-            .populate('reporterId', 'name email')
-            .populate('assignedDepartmentId', 'name departmentType')
-            .sort({ createdAt: -1 });
-        res.json(issues);
-    } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message });
-    }
+// ─── GET /api/issues/:id ──────────────────────────────────────────────────────
+const getIssueById = async (req, res) => {
+  const issue = await Issue.findById(req.params.id)
+    .populate("reportedBy", "name email phone")
+    .populate("assignedTo", "name email department")
+    .populate("comments.user", "name role");
+
+  if (!issue) {
+    return res
+      .status(404)
+      .json({ success: false, message: "Issue not found." });
+  }
+
+  // BUG FIX: citizens can only view their own issues
+  if (
+    req.user.role === "citizen" &&
+    issue.reportedBy._id.toString() !== req.user._id.toString()
+  ) {
+    return res
+      .status(403)
+      .json({ success: false, message: "Not authorized to view this issue." });
+  }
+
+  // Department can only view issues in their department
+  if (
+    req.user.role === "department" &&
+    issue.department !== req.user.department
+  ) {
+    return res.status(403).json({
+      success: false,
+      message: "Not authorized to view issues outside your department.",
+    });
+  }
+
+  res.status(200).json({ success: true, issue });
 };
 
-exports.getIssueById = async (req, res) => {
-    try {
-        const issue = await Issue.findById(req.params.id)
-            .populate('reporterId', 'name email')
-            .populate('assignedDepartmentId', 'name departmentType');
+// ─── POST /api/issues ─────────────────────────────────────────────────────────
+const createIssue = async (req, res) => {
+  const { title, description, category, priority, location } = req.body;
 
-        if (!issue) return res.status(404).json({ message: 'Issue not found' });
-        res.json(issue);
-    } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message });
+  // BUG FIX: location was expected as object but form sends flat fields
+  // Support both JSON body and form-data with location.address
+  let parsedLocation = location;
+  if (typeof location === "string") {
+    try {
+      parsedLocation = JSON.parse(location);
+    } catch {
+      // If it's just a plain string, treat as address
+      parsedLocation = { address: location };
     }
+  }
+
+  if (!parsedLocation || !parsedLocation.address) {
+    return res.status(400).json({
+      success: false,
+      message: "Location address is required.",
+    });
+  }
+
+  // Handle uploaded image files
+  const images = req.files
+    ? req.files.map((f) => `/uploads/${f.filename}`)
+    : [];
+
+  const issue = await Issue.create({
+    title,
+    description,
+    category,
+    priority: priority || "medium",
+    location: parsedLocation,
+    images,
+    reportedBy: req.user._id,
+    department: category, // auto-map category → department
+  });
+
+  const populated = await Issue.findById(issue._id).populate(
+    "reportedBy",
+    "name email"
+  );
+
+  res.status(201).json({ success: true, issue: populated });
 };
 
-exports.validateImage = async (req, res) => {
-    try {
-        const { category } = req.body;
+// ─── PUT /api/issues/:id ──────────────────────────────────────────────────────
+const updateIssue = async (req, res) => {
+  let issue = await Issue.findById(req.params.id);
 
-        if (!category) {
-            return res.status(400).json({ valid: false, message: "Category is required" });
-        }
+  if (!issue) {
+    return res
+      .status(404)
+      .json({ success: false, message: "Issue not found." });
+  }
 
-        if (!process.env.GEMINI_API_KEY) {
-            return res.status(200).json({
-                valid: true,
-                category: category,
-                confidence: 80,
-                message: "Simulated validation (no AI key)",
-            });
-        }
+  const { role, _id, department } = req.user;
 
-        if (!req.file) {
-            return res.status(400).json({ valid: false, message: "No image uploaded" });
-        }
-
-        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
-        const prompt = `
-            Analyze this image and return ONLY JSON:
-            {
-              "category": "ROADS|GARBAGE|ELECTRICITY|WATER|OTHER",
-              "confidence": number,
-              "objects_detected": ["object1", "object2"]
-            }
-        `;
-
-        const imageParts = [fileToGenerativePart(req.file.path, req.file.mimetype)];
-        const result = await model.generateContent([prompt, ...imageParts]);
-        let responseText = result.response.text().trim();
-
-        // Clean markdown and extract JSON
-        if (responseText.includes("```")) {
-            responseText = responseText.replace(/```json/gi, "").replace(/```/gi, "").trim();
-        }
-        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) throw new Error("Invalid AI response");
-
-        const aiData = JSON.parse(jsonMatch[0]);
-        let mappedCategory = (aiData.category || "OTHER").toUpperCase();
-
-        // Normalization logic
-        if (mappedCategory.includes("ROAD")) mappedCategory = "ROADS";
-        else if (mappedCategory.includes("GARBAGE") || mappedCategory.includes("TRASH")) mappedCategory = "GARBAGE";
-        else if (mappedCategory.includes("ELECTR") || mappedCategory.includes("LIGHT")) mappedCategory = "ELECTRICITY";
-        else if (mappedCategory.includes("WATER") || mappedCategory.includes("FLOOD")) mappedCategory = "WATER";
-
-        const confidence = Number(aiData.confidence) || 0;
-        const userCategory = category.toUpperCase();
-
-        // Strict Validation Check
-        const isMismatch = (mappedCategory !== userCategory && mappedCategory !== 'OTHER' && userCategory !== 'OTHER');
-
-        if (isMismatch) {
-            return res.status(400).json({
-                valid: false,
-                category: mappedCategory,
-                confidence,
-                message: `❌ Mismatch. You selected ${userCategory}, but AI detected ${mappedCategory}.`
-            });
-        }
-
-        if (confidence < 50) {
-            return res.status(400).json({
-                valid: false,
-                category: mappedCategory,
-                confidence,
-                message: `❌ Image clarity too low (${confidence}%). Please provide a clearer photo.`
-            });
-        }
-
-        return res.status(200).json({
-            valid: true,
-            category: mappedCategory,
-            confidence,
-            objects_detected: aiData.objects_detected,
-            message: `✅ Image verified (${confidence}% confidence)`,
-        });
-
-    } catch (error) {
-        console.error("Validation error:", error);
-        return res.status(500).json({ valid: false, message: "Server error during validation" });
+  // BUG FIX: no ownership / role checks in original update
+  if (role === "citizen") {
+    // Citizens can only edit their own pending issues
+    if (issue.reportedBy.toString() !== _id.toString()) {
+      return res
+        .status(403)
+        .json({ success: false, message: "Not authorized to edit this issue." });
     }
+    if (issue.status !== "pending") {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot edit an issue that is no longer pending.",
+      });
+    }
+    // Citizens can only update these fields
+    const { title, description, location } = req.body;
+    issue = await Issue.findByIdAndUpdate(
+      req.params.id,
+      { title, description, location },
+      { new: true, runValidators: true }
+    );
+  } else if (role === "department") {
+    // Department can only update status/comments for their dept issues
+    if (issue.department !== department) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized to update issues outside your department.",
+      });
+    }
+    const { status, adminNote } = req.body;
+    const allowedStatuses = ["in_progress", "resolved", "rejected"];
+    if (status && !allowedStatuses.includes(status)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid status value." });
+    }
+    issue = await Issue.findByIdAndUpdate(
+      req.params.id,
+      { ...(status && { status }), ...(adminNote && { adminNote }) },
+      { new: true, runValidators: true }
+    );
+  } else if (role === "admin") {
+    // Admin can update anything
+    issue = await Issue.findByIdAndUpdate(req.params.id, req.body, {
+      new: true,
+      runValidators: true,
+    });
+  }
+
+  res.status(200).json({ success: true, issue });
 };
 
-exports.getNearbyIssues = async (req, res) => {
-    try {
-        const { lat, lng, category, radiusKm = 3 } = req.body;
-        if (!lat || !lng) return res.status(400).json({ message: 'lat and lng required' });
+// ─── DELETE /api/issues/:id ───────────────────────────────────────────────────
+const deleteIssue = async (req, res) => {
+  const issue = await Issue.findById(req.params.id);
 
-        let query = {};
-        if (category) query.category = category;
+  if (!issue) {
+    return res
+      .status(404)
+      .json({ success: false, message: "Issue not found." });
+  }
 
-        const allIssues = await Issue.find(query);
-        const nearby = allIssues.filter(issue => {
-            if (!issue.location || !issue.location.lat || !issue.location.lng) return false;
-            const d = getDistanceFromLatLonInKm(lat, lng, issue.location.lat, issue.location.lng);
-            return d <= radiusKm;
-        });
+  // BUG FIX: no ownership check — anyone could delete any issue
+  if (
+    req.user.role === "citizen" &&
+    issue.reportedBy.toString() !== req.user._id.toString()
+  ) {
+    return res
+      .status(403)
+      .json({ success: false, message: "Not authorized to delete this issue." });
+  }
 
-        res.json(nearby);
-    } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message });
-    }
+  // Only citizens (own issues) and admins can delete
+  if (req.user.role === "department") {
+    return res.status(403).json({
+      success: false,
+      message: "Department users cannot delete issues.",
+    });
+  }
+
+  await issue.deleteOne();
+  res
+    .status(200)
+    .json({ success: true, message: "Issue deleted successfully." });
 };
 
-exports.voteIssue = async (req, res) => {
-    try {
-        const issueId = req.params.id;
-        const userId = req.user.userId;
+// ─── POST /api/issues/:id/comments ────────────────────────────────────────────
+const addComment = async (req, res) => {
+  const { text } = req.body;
 
-        const issue = await Issue.findById(issueId);
-        if (!issue) return res.status(404).json({ message: 'Issue not found' });
+  if (!text || !text.trim()) {
+    return res
+      .status(400)
+      .json({ success: false, message: "Comment text is required." });
+  }
 
-        if (issue.voters && issue.voters.includes(userId)) {
-            return res.status(400).json({ message: 'Already voted' });
-        }
+  const issue = await Issue.findById(req.params.id);
 
-        issue.votes = (issue.votes || 0) + 1;
-        issue.voters.push(userId);
-        issue.priority = calculatePriority(issue.votes);
+  if (!issue) {
+    return res
+      .status(404)
+      .json({ success: false, message: "Issue not found." });
+  }
 
-        await issue.save();
+  // Citizens can only comment on their own issues
+  if (
+    req.user.role === "citizen" &&
+    issue.reportedBy.toString() !== req.user._id.toString()
+  ) {
+    return res.status(403).json({
+      success: false,
+      message: "Not authorized to comment on this issue.",
+    });
+  }
 
-        await ActivityLog.create({
-            issueId: issue._id,
-            action: 'VOTE_ADDED',
-            performedBy: userId,
-            remarks: `Votes: ${issue.votes}`
-        });
+  issue.comments.push({ user: req.user._id, text: text.trim() });
+  await issue.save();
 
-        await User.findByIdAndUpdate(userId, { $inc: { points: 5 } });
+  const updated = await Issue.findById(req.params.id).populate(
+    "comments.user",
+    "name role"
+  );
 
-        res.json(issue);
-    } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message });
-    }
+  res.status(201).json({ success: true, comments: updated.comments });
 };
 
-exports.approveIssue = async (req, res) => {
-    try {
-        const { adminRemarks } = req.body;
-        const issue = await Issue.findById(req.params.id).populate('reporterId', 'name email');
+// ─── GET /api/issues/stats ────────────────────────────────────────────────────
+// Admin/department dashboard stats
+const getStats = async (req, res) => {
+  let matchFilter = {};
 
-        if (!issue) return res.status(404).json({ message: 'Issue not found' });
-        if (issue.verificationStatus !== 'PENDING') return res.status(400).json({ message: 'Processed already' });
+  if (req.user.role === "department") {
+    matchFilter.department = req.user.department;
+  } else if (req.user.role === "citizen") {
+    matchFilter.reportedBy = req.user._id;
+  }
 
-        const departmentMapping = { 'ROADS': 'ROADS', 'WATER': 'WATER', 'GARBAGE': 'GARBAGE', 'ELECTRICITY': 'ELECTRICITY', 'OTHER': 'OTHER' };
-        const assignedDept = departmentMapping[issue.category] || 'OTHER';
+  const [statusStats, categoryStats, totalCount] = await Promise.all([
+    Issue.aggregate([
+      { $match: matchFilter },
+      { $group: { _id: "$status", count: { $sum: 1 } } },
+    ]),
+    Issue.aggregate([
+      { $match: matchFilter },
+      { $group: { _id: "$category", count: { $sum: 1 } } },
+    ]),
+    Issue.countDocuments(matchFilter),
+  ]);
 
-        const deptUser = await User.findOne({ role: 'DEPARTMENT', departmentType: assignedDept });
+  // Normalize status stats into a flat object
+  const byStatus = { pending: 0, in_progress: 0, resolved: 0, rejected: 0 };
+  statusStats.forEach(({ _id, count }) => {
+    if (_id in byStatus) byStatus[_id] = count;
+  });
 
-        issue.verificationStatus = 'APPROVED';
-        issue.status = 'VERIFIED';
-        issue.adminRemarks = adminRemarks;
-        issue.assignedDepartment = assignedDept;
-        issue.assignedDepartmentId = deptUser ? deptUser._id : null;
-        issue.verifiedAt = new Date();
-
-        await issue.save();
-
-        await sendNotification(issue.reporterId.email, 'ISSUE_APPROVED', { issueId: issue._id, title: issue.title });
-
-        res.json({ message: 'Issue approved', issue });
-    } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message });
-    }
+  res.status(200).json({
+    success: true,
+    stats: {
+      total: totalCount,
+      byStatus,
+      byCategory: categoryStats,
+    },
+  });
 };
 
-exports.rejectIssue = async (req, res) => {
-    try {
-        const { rejectionReason, adminRemarks } = req.body;
-        const issue = await Issue.findById(req.params.id).populate('reporterId', 'name email');
-
-        if (!issue) return res.status(404).json({ message: 'Issue not found' });
-
-        issue.verificationStatus = 'REJECTED';
-        issue.status = 'REJECTED';
-        issue.rejectionReason = rejectionReason;
-        issue.adminRemarks = adminRemarks;
-
-        await issue.save();
-
-        await sendNotification(issue.reporterId.email, 'ISSUE_REJECTED', { issueId: issue._id, reason: rejectionReason });
-
-        res.json({ message: 'Issue rejected', issue });
-    } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message });
-    }
-};
-
-exports.updateDepartmentStatus = async (req, res) => {
-    try {
-        const { status, remarks } = req.body;
-        const userId = req.user.userId;
-        const issue = await Issue.findById(req.params.id).populate('reporterId', 'name email');
-
-        if (!issue) return res.status(404).json({ message: 'Issue not found' });
-        if (issue.assignedDepartmentId.toString() !== userId) return res.status(403).json({ message: 'Unauthorized' });
-
-        issue.status = status;
-        if (remarks) {
-            issue.departmentRemarks.push({ message: remarks, userId, userRole: 'DEPARTMENT' });
-        }
-
-        if (status === 'RESOLVED') issue.resolvedAt = new Date();
-        await issue.save();
-
-        await sendNotification(issue.reporterId.email, 'ISSUE_STATUS_UPDATED', { title: issue.title, status });
-
-        res.json({ message: `Updated to ${status}`, issue });
-    } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message });
-    }
-};
-
-exports.getIssuesByStatus = async (req, res) => {
-    try {
-        const { status, department } = req.query;
-        const { role, userId } = req.user;
-
-        let query = {};
-        if (status) query.status = Array.isArray(status) ? { $in: status } : status;
-
-        if (role === 'DEPARTMENT') query.assignedDepartmentId = userId;
-        else if (role === 'USER') query.reporterId = userId;
-
-        if (department) query.assignedDepartment = department;
-
-        const issues = await Issue.find(query).populate('reporterId', 'name email').sort({ createdAt: -1 });
-        res.json(issues);
-    } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message });
-    }
-};
-
-exports.getIssueActivityLogs = async (req, res) => {
-    try {
-        const logs = await ActivityLog.find({ issueId: req.params.id })
-            .populate('performedBy', 'name email role')
-            .sort({ createdAt: -1 });
-        res.json(logs);
-    } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message });
-    }
+module.exports = {
+  getIssues,
+  getIssueById,
+  createIssue,
+  updateIssue,
+  deleteIssue,
+  addComment,
+  getStats,
 };
