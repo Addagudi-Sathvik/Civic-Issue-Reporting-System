@@ -1,117 +1,101 @@
-const mongoose = require('mongoose');
+// backend/models/Issue.js
+const mongoose = require("mongoose");
 
-const issueSchema = new mongoose.Schema(
+const commentSchema = new mongoose.Schema(
   {
-    title: {
-      type: String,
-      required: true,
-    },
-    description: {
-      type: String,
-      required: true,
-    },
-    category: {
-      type: String,
-      enum: ['ROADS', 'WATER', 'GARBAGE', 'ELECTRICITY', 'OTHER'],
-      required: true,
-    },
-    location: {
-      lat: {
-        type: Number,
-        required: true,
-      },
-      lng: {
-        type: Number,
-        required: true,
-      },
-      address: {
-        type: String,
-      },
-    },
-    media: [
-      {
-        type: String, // URLs of images/videos
-      },
-    ],
-    status: {
-      type: String,
-      enum: ['PENDING_VERIFICATION', 'VERIFIED', 'REJECTED', 'ASSIGNED', 'IN_PROGRESS', 'RESOLVED'],
-      default: 'PENDING_VERIFICATION',
-    },
-    verificationStatus: {
-      type: String,
-      enum: ['PENDING', 'APPROVED', 'REJECTED'],
-      default: 'PENDING',
-    },
-    verificationType: {
-      type: String,
-      enum: ['AI', 'ADMIN', 'CROWD'],
-      default: null,
-    },
-    aiConfidence: {
-      type: Number,
-      min: 0,
-      max: 100,
-    },
-    assignedDepartment: {
-      type: String,
-      enum: ['ROADS', 'WATER', 'GARBAGE', 'ELECTRICITY', 'OTHER'],
-    },
-    adminRemarks: {
-      type: String,
-    },
-    departmentRemarks: [{
-      message: String,
-      timestamp: { type: Date, default: Date.now },
-      userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-      userRole: String,
-    }],
-    rejectionReason: {
-      type: String,
-    },
-    verifiedAt: {
-      type: Date,
-    },
-    assignedAt: {
-      type: Date,
-    },
-    inProgressAt: {
-      type: Date,
-    },
-    priority: {
-      type: String,
-      enum: ['LOW', 'MEDIUM', 'HIGH', 'URGENT'],
-      default: 'LOW',
-    },
-    votes: {
-      type: Number,
-      default: 0,
-    },
-    voters: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
-      }
-    ],
-    reporterId: {
+    user: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
+      ref: "User",
       required: true,
     },
-    assignedDepartmentId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-    },
-    proofOfCompletion: [
-      {
-        type: String,
-      },
-    ],
-    resolvedAt: {
-      type: Date,
+    text: {
+      type: String,
+      required: true,
+      trim: true,
     },
   },
   { timestamps: true }
 );
 
-module.exports = mongoose.model('Issue', issueSchema);
+const issueSchema = new mongoose.Schema(
+  {
+    title: {
+      type: String,
+      required: [true, "Title is required"],
+      trim: true,
+      maxlength: [200, "Title cannot exceed 200 characters"],
+    },
+    description: {
+      type: String,
+      required: [true, "Description is required"],
+      trim: true,
+    },
+    category: {
+      type: String,
+      required: [true, "Category is required"],
+      enum: ["roads", "water", "electricity", "sanitation", "parks", "other"],
+    },
+    status: {
+      type: String,
+      enum: ["pending", "in_progress", "resolved", "rejected"],
+      default: "pending",
+    },
+    priority: {
+      type: String,
+      enum: ["low", "medium", "high"],
+      default: "medium",
+    },
+    location: {
+      address: {
+        type: String,
+        required: [true, "Location address is required"],
+        trim: true,
+      },
+      // Optional coordinates for map display
+      lat: { type: Number },
+      lng: { type: Number },
+    },
+    images: [
+      {
+        type: String, // file path or URL
+      },
+    ],
+    reportedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    assignedTo: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    department: {
+      type: String,
+      enum: ["roads", "water", "electricity", "sanitation", "parks", "other"],
+    },
+    comments: [commentSchema],
+    resolvedAt: {
+      type: Date,
+      default: null,
+    },
+    adminNote: {
+      type: String,
+      trim: true,
+    },
+  },
+  { timestamps: true }
+);
+
+// Auto-set department from category if not explicitly set
+issueSchema.pre("save", function (next) {
+  if (!this.department && this.category) {
+    this.department = this.category;
+  }
+  if (this.status === "resolved" && !this.resolvedAt) {
+    this.resolvedAt = new Date();
+  }
+  next();
+});
+
+module.exports = mongoose.model("Issue", issueSchema);
