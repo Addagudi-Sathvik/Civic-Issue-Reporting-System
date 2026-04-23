@@ -1,149 +1,142 @@
-const User = require('../models/User');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
+// backend/controllers/authController.js
+const User = require("../models/User");
+const jwt = require("jsonwebtoken");
 
-exports.register = async (req, res) => {
-  try {
-    const { name, email, password, role, departmentType } = req.body;
+// Generate JWT
+const generateToken = (userId) => {
+  return jwt.sign({ id: userId }, process.env.JWT_SECRET, {
+    expiresIn: process.env.JWT_EXPIRES_IN || "7d",
+  });
+};
 
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return res.status(400).json({ message: 'User already exists' });
-    }
+// ─── POST /api/auth/register ──────────────────────────────────────────────────
+const register = async (req, res) => {
+  const { name, email, password, role, department, phone } = req.body;
 
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
+  // Prevent anyone self-registering as admin
+  // BUG FIX: original code allowed any role including admin
+  const allowedSelfRoles = ["citizen", "department"];
+  const userRole = allowedSelfRoles.includes(role) ? role : "citizen";
 
-    const user = new User({
-      name,
-      email,
-      password: hashedPassword,
-      role: role || 'USER',
-      departmentType: role === 'DEPARTMENT' ? departmentType : undefined,
+  // Department role requires a valid department
+  if (userRole === "department" && !department) {
+    return res.status(400).json({
+      success: false,
+      message: "Department field is required for department users.",
     });
-
-    await user.save();
-
-    const token = jwt.sign(
-      { userId: user._id, role: user.role },
-      process.env.JWT_SECRET || 'fallback_secret',
-      { expiresIn: '7d' }
-    );
-
-    res.status(201).json({
-      token,
-      user: { id: user._id, name: user.name, email: user.email, role: user.role },
-    });
-  } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
   }
+
+  const userExists = await User.findOne({ email });
+  if (userExists) {
+    return res
+      .status(400)
+      .json({ success: false, message: "Email already registered." });
+  }
+
+  const user = await User.create({
+    name,
+    email,
+    password,
+    role: userRole,
+    department: userRole === "department" ? department : null,
+    phone,
+  });
+
+  const token = generateToken(user._id);
+
+  res.status(201).json({
+    success: true,
+    token,
+    user: {
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      department: user.department,
+    },
+  });
 };
 
-exports.login = async (req, res) => {
-  try {
-    const { email, password } = req.body;
+// ─── POST /api/auth/login ─────────────────────────────────────────────────────
+const login = async (req, res) => {
+  const { email, password } = req.body;
 
-    const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(400).json({ message: 'Invalid credentials' });
-    }
-
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(400).json({ message: 'Invalid credentials' });
-    }
-
-    const token = jwt.sign(
-      { userId: user._id, role: user.role },
-      process.env.JWT_SECRET || 'fallback_secret',
-      { expiresIn: '7d' }
-    );
-
-    res.json({
-      token,
-      user: { id: user._id, name: user.name, email: user.email, role: user.role, points: user.points },
-    });
-  } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
+  if (!email || !password) {
+    return res
+      .status(400)
+      .json({ success: false, message: "Email and password are required." });
   }
+
+  // BUG FIX: must use .select("+password") since password is select:false
+  const user = await User.findOne({ email }).select("+password");
+
+  if (!user || !(await user.matchPassword(password))) {
+    return res
+      .status(401)
+      .json({ success: false, message: "Invalid email or password." });
+  }
+
+  if (!user.isActive) {
+    return res
+      .status(403)
+      .json({ success: false, message: "Account deactivated. Contact admin." });
+  }
+
+  const token = generateToken(user._id);
+
+  res.status(200).json({
+    success: true,
+    token,
+    user: {
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      department: user.department,
+    },
+  });
 };
 
-exports.getMe = async (req, res) => {
-  try {
-    const user = await User.findById(req.user.userId).select('-password');
-    if (!user) return res.status(404).json({ message: 'User not found' });
-    res.json(user);
-  } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
+// ─── GET /api/auth/me ─────────────────────────────────────────────────────────
+const getMe = async (req, res) => {
+  // req.user is already set by protect middleware
+  res.status(200).json({
+    success: true,
+    user: req.user,
+  });
 };
 
-/**
- * PATCH /api/auth/profile
- * Update user profile (name only)
- */
-exports.updateProfile = async (req, res) => {
-  try {
-    const { name } = req.body;
-    const userId = req.user.userId;
+// ─── PUT /api/auth/update-profile ─────────────────────────────────────────────
+const updateProfile = async (req, res) => {
+  const { name, phone } = req.body;
 
-    if (!name || name.trim().length === 0) {
-      return res.status(400).json({ message: 'Name is required' });
-    }
+  const user = await User.findByIdAndUpdate(
+    req.user._id,
+    { name, phone },
+    { new: true, runValidators: true }
+  );
 
-    const user = await User.findByIdAndUpdate(
-      userId,
-      { name: name.trim() },
-      { new: true }
-    ).select('-password');
-
-    if (!user) return res.status(404).json({ message: 'User not found' });
-
-    res.json({
-      message: 'Profile updated successfully',
-      user: { id: user._id, name: user.name, email: user.email, role: user.role }
-    });
-  } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
+  res.status(200).json({ success: true, user });
 };
 
-/**
- * POST /api/auth/change-password
- * Change user password
- */
-exports.changePassword = async (req, res) => {
-  try {
-    const { currentPassword, newPassword } = req.body;
-    const userId = req.user.userId;
+// ─── PUT /api/auth/change-password ────────────────────────────────────────────
+const changePassword = async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
 
-    if (!currentPassword || !newPassword) {
-      return res.status(400).json({ message: 'Current and new password are required' });
-    }
+  const user = await User.findById(req.user._id).select("+password");
 
-    if (newPassword.length < 6) {
-      return res.status(400).json({ message: 'New password must be at least 6 characters' });
-    }
-
-    const user = await User.findById(userId);
-    if (!user) return res.status(404).json({ message: 'User not found' });
-
-    // Verify current password
-    const isMatch = await bcrypt.compare(currentPassword, user.password);
-    if (!isMatch) {
-      return res.status(400).json({ message: 'Current password is incorrect' });
-    }
-
-    // Hash new password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(newPassword, salt);
-
-    // Update password
-    user.password = hashedPassword;
-    await user.save();
-
-    res.json({ message: 'Password changed successfully' });
-  } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
+  if (!(await user.matchPassword(currentPassword))) {
+    return res
+      .status(400)
+      .json({ success: false, message: "Current password is incorrect." });
   }
+
+  user.password = newPassword;
+  await user.save();
+
+  res
+    .status(200)
+    .json({ success: true, message: "Password changed successfully." });
 };
+
+module.exports = { register, login, getMe, updateProfile, changePassword };
