@@ -1,266 +1,278 @@
-const Issue = require('../models/Issue');
-const User = require('../models/User');
-const ActivityLog = require('../models/ActivityLog');
-const Confirmation = require('../models/Confirmation');
-const { sendNotification } = require('../services/notificationService');
+// backend/controllers/adminController.js
+const User = require("../models/User");
+const Issue = require("../models/Issue");
 
-/**
- * GET /api/admin/issues
- * Fetch all issues with optional filters (status, priority, category, verificationStatus)
- */
-exports.getIssuesForAdmin = async (req, res) => {
-  try {
-    const { status, priority, category, verificationStatus, page = 1, limit = 20 } = req.query;
-    
-    const filter = {};
-    if (status) filter.status = status;
-    if (priority) filter.priority = priority;
-    if (category) filter.category = category;
-    if (verificationStatus) filter.verificationStatus = verificationStatus;
+// ─── GET /api/admin/users ─────────────────────────────────────────────────────
+const getAllUsers = async (req, res) => {
+  const { role, page = 1, limit = 20 } = req.query;
 
-    const issues = await Issue.find(filter)
-      .populate('reporterId', 'name email trustScore')
-      .populate('assignedDepartmentId', 'name departmentType')
+  const filter = role ? { role } : {};
+  const skip = (Number(page) - 1) * Number(limit);
+  const total = await User.countDocuments(filter);
+
+  const users = await User.find(filter)
+    .select("-password")
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(Number(limit));
+
+  res.status(200).json({
+    success: true,
+    count: users.length,
+    total,
+    totalPages: Math.ceil(total / Number(limit)),
+    currentPage: Number(page),
+    users,
+  });
+};
+
+// ─── GET /api/admin/users/:id ─────────────────────────────────────────────────
+const getUserById = async (req, res) => {
+  const user = await User.findById(req.params.id).select("-password");
+
+  if (!user) {
+    return res
+      .status(404)
+      .json({ success: false, message: "User not found." });
+  }
+
+  res.status(200).json({ success: true, user });
+};
+
+// ─── POST /api/admin/users ────────────────────────────────────────────────────
+// Admin creates new users (including department/admin users)
+const createUser = async (req, res) => {
+  const { name, email, password, role, department, phone } = req.body;
+
+  if (!name || !email || !password) {
+    return res.status(400).json({
+      success: false,
+      message: "Name, email, and password are required.",
+    });
+  }
+
+  if (role === "department" && !department) {
+    return res.status(400).json({
+      success: false,
+      message: "Department is required for department users.",
+    });
+  }
+
+  const existingUser = await User.findOne({ email });
+  if (existingUser) {
+    return res
+      .status(400)
+      .json({ success: false, message: "Email already registered." });
+  }
+
+  const user = await User.create({
+    name,
+    email,
+    password,
+    role: role || "citizen",
+    department: role === "department" ? department : null,
+    phone,
+  });
+
+  res.status(201).json({
+    success: true,
+    user: {
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      department: user.department,
+      isActive: user.isActive,
+      createdAt: user.createdAt,
+    },
+  });
+};
+
+// ─── PUT /api/admin/users/:id ─────────────────────────────────────────────────
+const updateUser = async (req, res) => {
+  const { name, email, role, department, phone, isActive } = req.body;
+
+  // Prevent admin from demoting themselves
+  if (
+    req.params.id === req.user._id.toString() &&
+    role &&
+    role !== "admin"
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: "Admin cannot change their own role.",
+    });
+  }
+
+  const user = await User.findByIdAndUpdate(
+    req.params.id,
+    {
+      ...(name !== undefined && { name }),
+      ...(email !== undefined && { email }),
+      ...(role !== undefined && { role }),
+      ...(department !== undefined && { department }),
+      ...(phone !== undefined && { phone }),
+      ...(isActive !== undefined && { isActive }),
+    },
+    { new: true, runValidators: true }
+  ).select("-password");
+
+  if (!user) {
+    return res
+      .status(404)
+      .json({ success: false, message: "User not found." });
+  }
+
+  res.status(200).json({ success: true, user });
+};
+
+// ─── DELETE /api/admin/users/:id ──────────────────────────────────────────────
+const deleteUser = async (req, res) => {
+  if (req.params.id === req.user._id.toString()) {
+    return res.status(400).json({
+      success: false,
+      message: "Admin cannot delete their own account.",
+    });
+  }
+
+  const user = await User.findByIdAndDelete(req.params.id);
+
+  if (!user) {
+    return res
+      .status(404)
+      .json({ success: false, message: "User not found." });
+  }
+
+  res
+    .status(200)
+    .json({ success: true, message: "User deleted successfully." });
+};
+
+// ─── PUT /api/admin/users/:id/toggle-active ───────────────────────────────────
+const toggleUserActive = async (req, res) => {
+  if (req.params.id === req.user._id.toString()) {
+    return res.status(400).json({
+      success: false,
+      message: "Admin cannot deactivate their own account.",
+    });
+  }
+
+  const user = await User.findById(req.params.id);
+  if (!user) {
+    return res
+      .status(404)
+      .json({ success: false, message: "User not found." });
+  }
+
+  user.isActive = !user.isActive;
+  await user.save();
+
+  res.status(200).json({
+    success: true,
+    message: `User ${user.isActive ? "activated" : "deactivated"} successfully.`,
+    user: { _id: user._id, name: user.name, isActive: user.isActive },
+  });
+};
+
+// ─── PUT /api/admin/issues/:id/assign ─────────────────────────────────────────
+const assignIssue = async (req, res) => {
+  const { assignedTo, department, priority } = req.body;
+
+  const issue = await Issue.findById(req.params.id);
+  if (!issue) {
+    return res
+      .status(404)
+      .json({ success: false, message: "Issue not found." });
+  }
+
+  // Validate the assignee is a department user
+  if (assignedTo) {
+    const assignee = await User.findById(assignedTo);
+    if (!assignee || assignee.role !== "department") {
+      return res.status(400).json({
+        success: false,
+        message: "Assignee must be a valid department user.",
+      });
+    }
+  }
+
+  const updated = await Issue.findByIdAndUpdate(
+    req.params.id,
+    {
+      ...(assignedTo !== undefined && { assignedTo }),
+      ...(department !== undefined && { department }),
+      ...(priority !== undefined && { priority }),
+      status: "in_progress",
+    },
+    { new: true, runValidators: true }
+  )
+    .populate("reportedBy", "name email")
+    .populate("assignedTo", "name email department");
+
+  res.status(200).json({ success: true, issue: updated });
+};
+
+// ─── GET /api/admin/stats ─────────────────────────────────────────────────────
+const getAdminStats = async (req, res) => {
+  const [
+    totalIssues,
+    pendingIssues,
+    inProgressIssues,
+    resolvedIssues,
+    rejectedIssues,
+    totalUsers,
+    citizenCount,
+    departmentCount,
+    issuesByCategory,
+    recentIssues,
+  ] = await Promise.all([
+    Issue.countDocuments(),
+    Issue.countDocuments({ status: "pending" }),
+    Issue.countDocuments({ status: "in_progress" }),
+    Issue.countDocuments({ status: "resolved" }),
+    Issue.countDocuments({ status: "rejected" }),
+    User.countDocuments(),
+    User.countDocuments({ role: "citizen" }),
+    User.countDocuments({ role: "department" }),
+    Issue.aggregate([
+      { $group: { _id: "$category", count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+    ]),
+    Issue.find()
+      .populate("reportedBy", "name")
       .sort({ createdAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(parseInt(limit));
+      .limit(5)
+      .select("title status category createdAt"),
+  ]);
 
-    const total = await Issue.countDocuments(filter);
-
-    res.json({
-      issues,
-      pagination: { total, page: parseInt(page), limit: parseInt(limit), pages: Math.ceil(total / limit) }
-    });
-  } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
+  res.status(200).json({
+    success: true,
+    stats: {
+      issues: {
+        total: totalIssues,
+        pending: pendingIssues,
+        in_progress: inProgressIssues,
+        resolved: resolvedIssues,
+        rejected: rejectedIssues,
+      },
+      users: {
+        total: totalUsers,
+        citizens: citizenCount,
+        departments: departmentCount,
+      },
+      issuesByCategory,
+      recentIssues,
+    },
+  });
 };
 
-/**
- * GET /api/admin/issues/:id
- * Get detailed issue information
- */
-exports.getIssueDetail = async (req, res) => {
-  try {
-    const issue = await Issue.findById(req.params.id)
-      .populate('reporterId', 'name email trustScore reportsCount falseReportsCount')
-      .populate('assignedDepartmentId', 'name departmentType')
-      .populate('voters', 'name email');
-      
-    if (!issue) return res.status(404).json({ message: 'Issue not found' });
-
-    // Get activity log
-    const activityLog = await ActivityLog.find({ issueId: issue._id })
-      .populate('performedBy', 'name email role')
-      .sort({ createdAt: -1 });
-
-    // Get confirmation details
-    const confirmations = await Confirmation.find({ issueId: issue._id })
-      .populate('userId', 'name email');
-
-    res.json({ issue, activityLog, confirmations });
-  } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-};
-
-/**
- * POST /api/admin/approve
- * Admin approves an issue (verification)
- */
-exports.approveIssue = async (req, res) => {
-  try {
-    const { issueId, remarks } = req.body;
-    const adminId = req.user.userId;
-
-    const issue = await Issue.findById(issueId);
-    if (!issue) return res.status(404).json({ message: 'Issue not found' });
-
-    // Update issue
-    issue.verificationStatus = 'APPROVED';
-    issue.status = 'VERIFIED';
-    issue.verificationType = 'ADMIN';
-    issue.adminRemarks = remarks;
-    issue.verifiedAt = new Date();
-
-    await issue.save();
-
-    // Log activity
-    await ActivityLog.create({
-      issueId: issue._id,
-      action: 'ADMIN_APPROVED',
-      performedBy: adminId,
-      remarks: remarks,
-      newStatus: 'VERIFIED',
-      metadata: { verificationType: 'ADMIN' }
-    });
-
-    // Award reporter points
-    await User.findByIdAndUpdate(issue.reporterId, { $inc: { points: 20 } });
-
-    // Send notification
-    const reporter = await User.findById(issue.reporterId);
-    await sendNotification('ISSUE_APPROVED', {
-      email: reporter.email,
-      title: issue.title,
-      department: issue.assignedDepartment || 'To Be Assigned'
-    });
-
-    res.json({ message: 'Issue approved', issue });
-  } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-};
-
-/**
- * POST /api/admin/reject
- * Admin rejects an issue
- */
-exports.rejectIssue = async (req, res) => {
-  try {
-    const { issueId, rejectionReason } = req.body;
-    const adminId = req.user.userId;
-
-    if (!rejectionReason) {
-      return res.status(400).json({ message: 'Rejection reason is required' });
-    }
-
-    const issue = await Issue.findById(issueId);
-    if (!issue) return res.status(404).json({ message: 'Issue not found' });
-
-    // Update issue
-    issue.verificationStatus = 'REJECTED';
-    issue.status = 'REJECTED';
-    issue.rejectionReason = rejectionReason;
-
-    await issue.save();
-
-    // Log activity
-    await ActivityLog.create({
-      issueId: issue._id,
-      action: 'ADMIN_REJECTED',
-      performedBy: adminId,
-      remarks: rejectionReason,
-      newStatus: 'REJECTED'
-    });
-
-    // Decrease reporter trustScore
-    await User.findByIdAndUpdate(issue.reporterId, { $inc: { trustScore: -5, falseReportsCount: 1 } });
-
-    // Send notification
-    const reporter = await User.findById(issue.reporterId);
-    await sendNotification('ISSUE_REJECTED', {
-      email: reporter.email,
-      title: issue.title,
-      reason: rejectionReason
-    });
-
-    res.json({ message: 'Issue rejected', issue });
-  } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-};
-
-/**
- * POST /api/admin/assign
- * Admin assigns verified issue to department
- */
-exports.assignDepartment = async (req, res) => {
-  try {
-    const { issueId, departmentUserId } = req.body;
-    const adminId = req.user.userId;
-
-    const issue = await Issue.findById(issueId);
-    if (!issue) return res.status(404).json({ message: 'Issue not found' });
-
-    if (issue.status !== 'VERIFIED') {
-      return res.status(400).json({ message: 'Only verified issues can be assigned' });
-    }
-
-    // Get department user
-    const departmentUser = await User.findById(departmentUserId);
-    if (!departmentUser || !['DEPARTMENT', 'ADMIN'].includes(departmentUser.role)) {
-      return res.status(400).json({ message: 'Invalid department user' });
-    }
-
-    // Update issue
-    issue.assignedDepartmentId = departmentUserId;
-    issue.assignedDepartment = departmentUser.departmentType;
-    issue.status = 'ASSIGNED';
-    issue.assignedAt = new Date();
-
-    await issue.save();
-
-    // Log activity
-    await ActivityLog.create({
-      issueId: issue._id,
-      action: 'DEPARTMENT_ASSIGNED',
-      performedBy: adminId,
-      remarks: `Assigned to ${departmentUser.name} (${departmentUser.departmentType})`,
-      newStatus: 'ASSIGNED',
-      metadata: { assignedTo: departmentUserId, departmentType: departmentUser.departmentType }
-    });
-
-    // Send notifications
-    const reporter = await User.findById(issue.reporterId);
-    await sendNotification('ISSUE_ASSIGNED', {
-      email: reporter.email,
-      title: issue.title,
-      department: issue.assignedDepartment,
-      departmentEmail: departmentUser.email
-    });
-
-    res.json({ message: 'Issue assigned to department', issue });
-  } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-};
-
-/**
- * GET /api/admin/stats
- * Dashboard statistics for admin
- */
-exports.getAdminStats = async (req, res) => {
-  try {
-    const stats = {
-      totalIssues: await Issue.countDocuments(),
-      pendingVerification: await Issue.countDocuments({ status: 'PENDING_VERIFICATION' }),
-      verified: await Issue.countDocuments({ status: 'VERIFIED' }),
-      assigned: await Issue.countDocuments({ status: 'ASSIGNED' }),
-      inProgress: await Issue.countDocuments({ status: 'IN_PROGRESS' }),
-      resolved: await Issue.countDocuments({ status: 'RESOLVED' }),
-      rejected: await Issue.countDocuments({ status: 'REJECTED' }),
-      
-      // Priority distribution
-      highPriority: await Issue.countDocuments({ priority: 'HIGH' }),
-      mediumPriority: await Issue.countDocuments({ priority: 'MEDIUM' }),
-      lowPriority: await Issue.countDocuments({ priority: 'LOW' }),
-      
-      // Recent activity
-      recentActivity: await ActivityLog.find()
-        .populate('performedBy', 'name email')
-        .populate('issueId', 'title category')
-        .sort({ createdAt: -1 })
-        .limit(10)
-    };
-
-    res.json(stats);
-  } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-};
-
-/**
- * GET /api/admin/department-users
- * Get all department users for assignment
- */
-exports.getDepartmentUsers = async (req, res) => {
-  try {
-    const departments = await User.find({ role: 'DEPARTMENT' })
-      .select('name email departmentType');
-
-    res.json(departments);
-  } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
+module.exports = {
+  getAllUsers,
+  getUserById,
+  createUser,
+  updateUser,
+  deleteUser,
+  toggleUserActive,
+  assignIssue,
+  getAdminStats,
 };
