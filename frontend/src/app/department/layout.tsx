@@ -14,9 +14,9 @@ export default function DepartmentLayout({ children }: { children: React.ReactNo
 
   // Check if user is department on mount
   useEffect(() => {
-    if (user && user.role !== 'DEPARTMENT') {
+    if (user && user.role !== 'department') {
       // TEMPORARY: Allow access for testing - remove this block in production
-      if (user.role === 'ADMIN') {
+      if (user.role === 'admin') {
         router.push('/admin');
       } else {
         // Allow access to department for testing
@@ -37,7 +37,7 @@ export default function DepartmentLayout({ children }: { children: React.ReactNo
     );
   }
 
-  if (user.role !== 'DEPARTMENT') {
+  if (user.role !== 'department') {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center glass p-8">
@@ -45,10 +45,10 @@ export default function DepartmentLayout({ children }: { children: React.ReactNo
           <h2 className="text-xl font-bold text-foreground mb-2">Access Denied</h2>
           <p className="text-foreground/60 mb-4">You don&apos;t have permission to access this area.</p>
           <button
-            onClick={() => router.push(user.role === 'ADMIN' ? '/admin' : '/dashboard')}
+            onClick={() => router.push(user.role === 'admin' ? '/admin' : '/dashboard')}
             className="px-4 py-2 bg-primary text-white rounded-lg"
           >
-            Go to {user.role === 'ADMIN' ? 'Admin Panel' : 'Dashboard'}
+            Go to {user.role === 'admin' ? 'Admin Panel' : 'Dashboard'}
           </button>
         </div>
       </div>

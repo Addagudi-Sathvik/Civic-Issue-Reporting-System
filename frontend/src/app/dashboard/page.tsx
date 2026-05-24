@@ -20,12 +20,13 @@ export default function UserDashboard() {
           api.get("/issues"),
           api.get("/auth/me")
         ]);
-        
-        const userIssues = issuesRes.data.filter((i: any) => i.reporterId?._id === user?.id);
-        setIssues(userIssues);
+        console.log("Fetched data:", issuesRes.data);
+
+        const fetchedIssues = issuesRes.data.issues || issuesRes.data;
+        setIssues(Array.isArray(fetchedIssues) ? fetchedIssues : []);
         setPoints(userRes.data.points || 0);
-      } catch (error) {
-        console.error("Failed to fetch data", error);
+      } catch (error: any) {
+        console.log("Fetch Error:", error.response?.data || error.message);
       } finally {
         setLoading(false);
       }
@@ -35,8 +36,8 @@ export default function UserDashboard() {
 
   const stats = [
     { label: "Total Reports", value: issues.length, icon: <AlertCircle size={24} className="text-blue-500" /> },
-    { label: "Pending", value: issues.filter(i => i.status === "PENDING" || i.status === "VERIFIED").length, icon: <Clock size={24} className="text-yellow-500" /> },
-    { label: "Resolved", value: issues.filter(i => i.status === "RESOLVED").length, icon: <CheckCircle size={24} className="text-green-500" /> },
+    { label: "Pending", value: issues.filter(i => i.status === "pending" || i.status === "in_progress").length, icon: <Clock size={24} className="text-yellow-500" /> },
+    { label: "Resolved", value: issues.filter(i => i.status === "resolved").length, icon: <CheckCircle size={24} className="text-green-500" /> },
   ];
 
   return (
@@ -112,7 +113,7 @@ export default function UserDashboard() {
                     </div>
                  </div>
                  <div className="flex flex-col items-end">
-                   <span className={`px-3 py-1 rounded-full text-xs font-semibold ${item.status === 'RESOLVED' ? 'bg-green-500/20 text-green-600' : 'bg-yellow-500/20 text-yellow-600'}`}>
+                   <span className={`px-3 py-1 rounded-full text-xs font-semibold ${item.status === 'resolved' ? 'bg-green-500/20 text-green-600' : 'bg-yellow-500/20 text-yellow-600'}`}>
                      {item.status}
                    </span>
                    <p className="text-xs text-foreground/50 mt-1">ID: #CVC-{item._id.slice(-4).toUpperCase()}</p>

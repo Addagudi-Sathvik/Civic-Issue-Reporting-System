@@ -47,9 +47,10 @@ export default function DepartmentDashboard() {
     setLoading(true);
     try {
       const response = await api.get("/department/issues");
+      console.log("Fetched data:", response.data);
       setIssues(response.data.issues || response.data);
     } catch (error: any) {
-      console.error("Failed to fetch assigned issues", error);
+      console.log("Fetch Error:", error.response?.data || error.message);
       showToast("Failed to load issues: " + (error.response?.data?.message || "Error"), 'error');
     } finally {
       setLoading(false);
@@ -63,7 +64,7 @@ export default function DepartmentDashboard() {
   const handleUpdateStatus = async (issueId: string, newStatus: string, remarksText: string = "") => {
     setActionLoading(issueId);
     try {
-      const payload: any = { status: newStatus };
+      const payload: any = { status: newStatus.toLowerCase() };
       if (remarksText.trim()) {
         payload.remarks = remarksText;
       }
@@ -86,31 +87,31 @@ export default function DepartmentDashboard() {
       showToast("❌ Please enter a note", 'error');
       return;
     }
-    await handleUpdateStatus(issueId, selectedIssue?.status || 'IN_PROGRESS', remarks);
+    await handleUpdateStatus(issueId, selectedIssue?.status || 'in_progress', remarks);
   };
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'ASSIGNED': return 'bg-blue-500/20 text-blue-700 border border-blue-300';
-      case 'IN_PROGRESS': return 'bg-orange-500/20 text-orange-700 border border-orange-300';
-      case 'RESOLVED': return 'bg-green-500/20 text-green-700 border border-green-300';
+      case 'pending': return 'bg-blue-500/20 text-blue-700 border border-blue-300';
+      case 'in_progress': return 'bg-orange-500/20 text-orange-700 border border-orange-300';
+      case 'resolved': return 'bg-green-500/20 text-green-700 border border-green-300';
       default: return 'bg-gray-500/20 text-gray-700 border border-gray-300';
     }
   };
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
-      case 'HIGH': return 'bg-red-500/20 text-red-700 border border-red-300';
-      case 'MEDIUM': return 'bg-orange-500/20 text-orange-700 border border-orange-300';
-      case 'LOW': return 'bg-green-500/20 text-green-700 border border-green-300';
+      case 'high': return 'bg-red-500/20 text-red-700 border border-red-300';
+      case 'medium': return 'bg-orange-500/20 text-orange-700 border border-orange-300';
+      case 'low': return 'bg-green-500/20 text-green-700 border border-green-300';
       default: return 'bg-gray-500/20 text-gray-700 border border-gray-300';
     }
   };
 
   const stats = [
     { label: "Assigned Issues", value: issues.length, icon: <AlertCircle size={24} className="text-blue-500" /> },
-    { label: "In Progress", value: issues.filter(i => i.status === "IN_PROGRESS").length, icon: <Clock size={24} className="text-orange-500" /> },
-    { label: "Resolved", value: issues.filter(i => i.status === "RESOLVED").length, icon: <CheckCircle size={24} className="text-green-500" /> },
+    { label: "In Progress", value: issues.filter(i => i.status === "in_progress").length, icon: <Clock size={24} className="text-orange-500" /> },
+    { label: "Resolved", value: issues.filter(i => i.status === "resolved").length, icon: <CheckCircle size={24} className="text-green-500" /> },
   ];
 
   return (
@@ -178,7 +179,7 @@ export default function DepartmentDashboard() {
                         <h3 className="text-xl font-bold text-foreground">{item.title}</h3>
                         <p className="text-sm text-foreground/60 line-clamp-2 mt-1">{item.description}</p>
                       </div>
-                      {item.priority === "HIGH" && (
+                      {item.priority === "high" && (
                         <div className="px-3 py-1 bg-red-500 text-white text-xs font-bold rounded-full whitespace-nowrap">
                           URGENT
                         </div>
@@ -226,11 +227,11 @@ export default function DepartmentDashboard() {
 
                   {/* Action Buttons */}
                   <div className="flex flex-col gap-3">
-                    {item.status === 'ASSIGNED' && (
+                    {item.status === 'pending' && (
                       <>
                         <motion.button
                           whileHover={{ scale: 1.02 }}
-                          onClick={() => handleUpdateStatus(item._id, "IN_PROGRESS", "Started working on this issue")}
+                          onClick={() => handleUpdateStatus(item._id, "in_progress", "Started working on this issue")}
                           disabled={actionLoading === item._id}
                           className="w-full py-3 bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white font-bold rounded-xl transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg"
                         >
@@ -248,7 +249,7 @@ export default function DepartmentDashboard() {
                       </>
                     )}
 
-                    {item.status === 'IN_PROGRESS' && (
+                    {item.status === 'in_progress' && (
                       <>
                         <motion.button
                           whileHover={{ scale: 1.02 }}
@@ -260,7 +261,7 @@ export default function DepartmentDashboard() {
                         </motion.button>
                         <motion.button
                           whileHover={{ scale: 1.02 }}
-                          onClick={() => handleUpdateStatus(item._id, "RESOLVED", "Issue has been successfully resolved")}
+                          onClick={() => handleUpdateStatus(item._id, "resolved", "Issue has been successfully resolved")}
                           disabled={actionLoading === item._id}
                           className="w-full py-3 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-bold rounded-xl transition-all duration-200 disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg"
                         >
@@ -270,7 +271,7 @@ export default function DepartmentDashboard() {
                       </>
                     )}
 
-                    {item.status === 'RESOLVED' && (
+                    {item.status === 'resolved' && (
                       <div className="py-3 px-4 bg-green-500/20 text-green-700 font-bold rounded-xl text-center border border-green-300">
                         ✅ Completed
                       </div>

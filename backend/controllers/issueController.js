@@ -1,52 +1,72 @@
 // backend/controllers/issueController.js
 const Issue = require("../models/Issue");
 const User = require("../models/User");
+const fs = require("fs/promises");
+
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-1.5-flash";
+
+const parseGeminiJson = (text) => {
+  const cleaned = text.replace(/```json|```/g, "").trim();
+  const match = cleaned.match(/\{[\s\S]*\}/);
+  return JSON.parse(match ? match[0] : cleaned);
+};
 
 // ─── GET /api/issues  ─────────────────────────────────────────────────────────
 // Citizen: sees only their own issues
 // Department: sees issues in their department
 // Admin: sees all issues
 const getIssues = async (req, res) => {
-  const { status, category, priority, page = 1, limit = 10 } = req.query;
+  try {
+    const { status, category, priority, page = 1, limit = 100 } = req.query;
 
   // BUG FIX: original code had no role filtering — citizens could see all issues
-  let filter = {};
+    let filter = {};
 
-  if (req.user.role === "citizen") {
-    filter.reportedBy = req.user._id;
-  } else if (req.user.role === "department") {
-    if (!req.user.department) {
-      return res.status(400).json({
-        success: false,
-        message: "Department user has no department assigned.",
-      });
+    if (req.user.role === "citizen") {
+      filter.reportedBy = req.user._id;
+    } else if (req.user.role === "department") {
+      if (!req.user.department) {
+        return res.status(400).json({
+          success: false,
+          message: "Department user has no department assigned.",
+        });
+      }
+      filter.department = req.user.department;
     }
-    filter.department = req.user.department;
-  }
   // admin: no filter — sees all
 
-  if (status) filter.status = status;
-  if (category) filter.category = category;
-  if (priority) filter.priority = priority;
+    if (status) filter.status = String(status).toLowerCase();
+    if (category) filter.category = String(category).toLowerCase();
+    if (priority) filter.priority = String(priority).toLowerCase();
 
-  const skip = (Number(page) - 1) * Number(limit);
-  const total = await Issue.countDocuments(filter);
+    const skip = (Number(page) - 1) * Number(limit);
+    const total = await Issue.countDocuments(filter);
 
-  const issues = await Issue.find(filter)
-    .populate("reportedBy", "name email")
-    .populate("assignedTo", "name email department")
-    .sort({ createdAt: -1 })
-    .skip(skip)
-    .limit(Number(limit));
+    const issues = await Issue.find(filter)
+      .populate("reportedBy", "name email")
+      .populate("assignedTo", "name email department")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(Number(limit));
 
-  res.status(200).json({
-    success: true,
-    count: issues.length,
-    total,
-    totalPages: Math.ceil(total / Number(limit)),
-    currentPage: Number(page),
-    issues,
-  });
+    console.log("Issues fetched:", issues.length);
+
+    res.status(200).json({
+      success: true,
+      count: issues.length,
+      total,
+      totalPages: Math.ceil(total / Number(limit)),
+      currentPage: Number(page),
+      issues,
+    });
+  } catch (error) {
+    console.log("Backend fetch error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch issues.",
+      error: error.message,
+    });
+  }
 };
 
 // ─── GET /api/issues/:id ──────────────────────────────────────────────────────
@@ -312,7 +332,10 @@ const getStats = async (req, res) => {
 
 // ─── GET /api/issues/nearby ───────────────────────────────────────────────────
 const getNearbyIssues = async (req, res) => {
-  const { latitude, longitude, radius = 5 } = req.query;
+  const latitude = req.query.latitude || req.query.lat || req.body.lat || req.body.latitude;
+  const longitude = req.query.longitude || req.query.lng || req.body.lng || req.body.longitude;
+  const radius = req.query.radius || req.query.radiusKm || req.body.radiusKm || req.body.radius || 5;
+  const category = req.query.category || req.body.category;
 
   if (!latitude || !longitude) {
     return res.status(400).json({
@@ -322,20 +345,20 @@ const getNearbyIssues = async (req, res) => {
   }
 
   try {
+    const lat = parseFloat(latitude);
+    const lng = parseFloat(longitude);
+    const radiusDegrees = parseFloat(radius) / 111;
+
     const issues = await Issue.find({
-      'location.coordinates': {
-        $near: {
-          $geometry: {
-            type: 'Point',
-            coordinates: [parseFloat(longitude), parseFloat(latitude)],
-          },
-          $maxDistance: parseFloat(radius) * 1000, // Convert km to meters
-        },
-      },
+      ...(category ? { category: String(category).toLowerCase() } : {}),
+      "location.lat": { $gte: lat - radiusDegrees, $lte: lat + radiusDegrees },
+      "location.lng": { $gte: lng - radiusDegrees, $lte: lng + radiusDegrees },
     }).populate('reportedBy', 'name email');
 
+    console.log("Nearby issues fetched:", issues.length);
     res.status(200).json({ success: true, issues });
   } catch (error) {
+    console.log("Backend fetch error:", error);
     res.status(400).json({
       success: false,
       message: "Error fetching nearby issues.",
@@ -386,16 +409,76 @@ const validateImage = async (req, res) => {
       });
     }
 
-    // Image is validated by multer fileFilter middleware
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(500).json({
+        success: false,
+        valid: false,
+        message: "AI validation is not configured. Missing GEMINI_API_KEY.",
+      });
+    }
+
+    const category = req.body.category || "civic issue";
+    const imageBuffer = await fs.readFile(req.file.path);
+    const imageBase64 = imageBuffer.toString("base64");
+
+    const geminiResponse = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${process.env.GEMINI_API_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                {
+                  text: `Validate whether this image is evidence for a civic issue in the category "${category}". Return only JSON with keys: valid boolean, category string, confidence number from 0 to 1, objects_detected string array, message string.`,
+                },
+                {
+                  inline_data: {
+                    mime_type: req.file.mimetype,
+                    data: imageBase64,
+                  },
+                },
+              ],
+            },
+          ],
+          generationConfig: {
+            responseMimeType: "application/json",
+          },
+        }),
+      }
+    );
+
+    const geminiData = await geminiResponse.json();
+
+    if (!geminiResponse.ok) {
+      throw new Error(
+        geminiData.error?.message ||
+          `Gemini validation failed with status ${geminiResponse.status}`
+      );
+    }
+
+    const responseText =
+      geminiData.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+    const validation = parseGeminiJson(responseText);
+
     res.status(200).json({
       success: true,
-      message: "Image is valid.",
+      valid: Boolean(validation.valid),
+      category: validation.category || category,
+      confidence: Number(validation.confidence || 0),
+      objects_detected: Array.isArray(validation.objects_detected)
+        ? validation.objects_detected
+        : [],
+      message: validation.message || "Image validation completed.",
       filename: req.file.filename,
       path: `/uploads/${req.file.filename}`,
     });
   } catch (error) {
-    res.status(400).json({
+    console.log("Validation Backend Error:", error);
+    res.status(500).json({
       success: false,
+      valid: false,
       message: "Image validation failed.",
       error: error.message,
     });
@@ -413,7 +496,7 @@ const approveIssue = async (req, res) => {
     });
   }
 
-  issue.status = "verified";
+  issue.status = "pending";
   issue.verifiedAt = new Date();
   issue.verifiedBy = req.user._id;
 
@@ -479,7 +562,7 @@ const assignDepartment = async (req, res) => {
   issue.assignedTo = assignedTo || null;
   issue.department = department || issue.department;
   issue.priority = priority || issue.priority;
-  issue.status = "assigned";
+  issue.status = "in_progress";
 
   await issue.save();
 
@@ -492,9 +575,10 @@ const assignDepartment = async (req, res) => {
 
 // ─── PATCH /api/issues/:id/status ────────────────────────────────────────────
 const updateDepartmentStatus = async (req, res) => {
-  const { status, adminNote } = req.body;
+  const { adminNote } = req.body;
+  const status = req.body.status?.toLowerCase();
 
-  const allowedStatuses = ["in_progress", "resolved", "rejected"];
+  const allowedStatuses = ["pending", "in_progress", "resolved", "rejected"];
   if (!status || !allowedStatuses.includes(status)) {
     return res.status(400).json({
       success: false,

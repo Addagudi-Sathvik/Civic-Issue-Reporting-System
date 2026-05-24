@@ -13,7 +13,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   // Check if user is admin on mount
   useEffect(() => {
-    if (user && user.role !== 'ADMIN') {
+    if (user && user.role !== 'admin') {
       // TEMPORARY: Allow access for testing - remove this block in production
       console.log('Accessing admin with role:', user.role);
     }
@@ -31,7 +31,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     );
   }
 
-  if (user.role !== 'ADMIN') {
+  if (user.role !== 'admin') {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center glass p-8">

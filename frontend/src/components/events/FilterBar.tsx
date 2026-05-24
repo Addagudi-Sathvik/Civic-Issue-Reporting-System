@@ -19,18 +19,18 @@ interface FilterBarProps {
 
 const categories = [
   { value: "ALL", label: "All Categories" },
-  { value: "ROADS", label: "Roads & Transport" },
-  { value: "GARBAGE", label: "Waste & Garbage" },
-  { value: "ELECTRICITY", label: "Electricity" },
-  { value: "WATER", label: "Water Management" },
-  { value: "OTHER", label: "Other Issues" },
+  { value: "roads", label: "Roads & Transport" },
+  { value: "sanitation", label: "Waste & Garbage" },
+  { value: "electricity", label: "Electricity" },
+  { value: "water", label: "Water Management" },
+  { value: "other", label: "Other Issues" },
 ];
 
 const statuses = [
   { value: "ALL", label: "All Statuses" },
-  { value: "PENDING", label: "Pending" },
-  { value: "VERIFIED", label: "Verified" },
-  { value: "RESOLVED", label: "Resolved" },
+  { value: "pending", label: "Pending" },
+  { value: "in_progress", label: "In Progress" },
+  { value: "resolved", label: "Resolved" },
 ];
 
 const radiusOptions = [

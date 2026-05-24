@@ -13,11 +13,12 @@ router.post(
   issueController.createIssue
 );
 
-router.get('/', issueController.getIssues);
+router.get('/', protect, issueController.getIssues);
 
 router.get('/nearby', issueController.getNearbyIssues);
+router.post('/nearby', issueController.getNearbyIssues);
 
-router.get('/:id', issueController.getIssueById);
+router.get('/:id', protect, issueController.getIssueById);
 
 router.post(
   '/:id/vote',
@@ -57,7 +58,14 @@ router.patch(
 router.patch(
   '/:id/status',
   protect,
-  authorize('department'),
+  authorize('admin', 'department'),
+  issueController.updateDepartmentStatus
+);
+
+router.put(
+  '/:id/status',
+  protect,
+  authorize('admin', 'department'),
   issueController.updateDepartmentStatus
 );
 

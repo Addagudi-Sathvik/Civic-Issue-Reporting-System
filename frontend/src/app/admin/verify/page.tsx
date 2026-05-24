@@ -16,11 +16,15 @@ export default function VerifyIssues() {
   const fetchPendingIssues = async () => {
     try {
       const response = await api.get("/issues");
+      console.log("Fetched data:", response.data);
+      const fetchedIssues = response.data.issues || response.data;
       // Filter only pending issues for verification
-      const pending = response.data.filter((i: any) => i.status === "PENDING");
+      const pending = Array.isArray(fetchedIssues)
+        ? fetchedIssues.filter((i: any) => i.status === "pending")
+        : [];
       setIssues(pending);
-    } catch (error) {
-      console.error("Failed to fetch pending issues", error);
+    } catch (error: any) {
+      console.log("Fetch Error:", error.response?.data || error.message);
     } finally {
       setLoading(false);
     }
@@ -28,7 +32,7 @@ export default function VerifyIssues() {
 
   const handleVerify = async (id: string) => {
     try {
-      await api.put(`/issues/${id}/status`, { status: "VERIFIED" });
+      await api.put(`/issues/${id}/status`, { status: "in_progress" });
       fetchPendingIssues(); // Refresh list
     } catch (e) {
       console.error("Failed to verify issue", e);

@@ -6,32 +6,43 @@ const ActivityLog = require("../models/ActivityLog");
 // ─── GET /api/admin/issues ────────────────────────────────────────────────────
 // Admin gets all issues with filters
 const getIssuesForAdmin = async (req, res) => {
-  const { status, priority, category, verificationStatus, page = 1, limit = 20 } = req.query;
+  try {
+    const { status, priority, category, verificationStatus, page = 1, limit = 100 } = req.query;
 
-  const filter = {};
-  if (status) filter.status = status;
-  if (priority) filter.priority = priority;
-  if (category) filter.category = category;
-  if (verificationStatus) filter.verificationStatus = verificationStatus;
+    const filter = {};
+    if (status) filter.status = String(status).toLowerCase();
+    if (priority) filter.priority = String(priority).toLowerCase();
+    if (category) filter.category = String(category).toLowerCase();
+    if (verificationStatus) filter.verificationStatus = verificationStatus;
 
-  const skip = (Number(page) - 1) * Number(limit);
-  const total = await Issue.countDocuments(filter);
+    const skip = (Number(page) - 1) * Number(limit);
+    const total = await Issue.countDocuments(filter);
 
-  const issues = await Issue.find(filter)
-    .populate("reportedBy", "name email phone")
-    .populate("assignedTo", "name email department")
-    .sort({ createdAt: -1 })
-    .skip(skip)
-    .limit(Number(limit));
+    const issues = await Issue.find(filter)
+      .populate("reportedBy", "name email phone")
+      .populate("assignedTo", "name email department")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(Number(limit));
 
-  res.status(200).json({
-    success: true,
-    count: issues.length,
-    total,
-    totalPages: Math.ceil(total / Number(limit)),
-    currentPage: Number(page),
-    issues,
-  });
+    console.log("Issues fetched:", issues.length);
+
+    res.status(200).json({
+      success: true,
+      count: issues.length,
+      total,
+      totalPages: Math.ceil(total / Number(limit)),
+      currentPage: Number(page),
+      issues,
+    });
+  } catch (error) {
+    console.log("Backend fetch error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch admin issues.",
+      error: error.message,
+    });
+  }
 };
 
 // ─── GET /api/admin/issues/:id ────────────────────────────────────────────────
@@ -73,7 +84,7 @@ const approveIssue = async (req, res) => {
     });
   }
 
-  issue.status = "verified";
+  issue.status = "pending";
   issue.verifiedAt = new Date();
   issue.verifiedBy = req.user._id;
 
@@ -155,7 +166,7 @@ const assignDepartment = async (req, res) => {
   issue.assignedTo = assignedTo || null;
   issue.department = department || issue.department;
   issue.priority = priority || issue.priority;
-  issue.status = "assigned";
+  issue.status = "in_progress";
 
   await issue.save();
 

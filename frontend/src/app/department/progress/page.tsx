@@ -12,10 +12,14 @@ export default function InProgressIssues() {
   const fetchIssues = async () => {
     try {
       const response = await api.get("/issues");
-      const assignedIssues = response.data.filter((i: any) => i.status === "IN_PROGRESS");
+      console.log("Fetched data:", response.data);
+      const fetchedIssues = response.data.issues || response.data;
+      const assignedIssues = Array.isArray(fetchedIssues)
+        ? fetchedIssues.filter((i: any) => i.status === "in_progress")
+        : [];
       setIssues(assignedIssues);
-    } catch (error) {
-      console.error(error);
+    } catch (error: any) {
+      console.log("Fetch Error:", error.response?.data || error.message);
     } finally {
       setLoading(false);
     }
@@ -27,7 +31,7 @@ export default function InProgressIssues() {
 
   const handleUpdateStatus = async (id: string, newStatus: string) => {
     try {
-      await api.put(`/issues/${id}/status`, { status: newStatus });
+      await api.put(`/issues/${id}/status`, { status: newStatus.toLowerCase() });
       fetchIssues(); // Refresh list
     } catch (e) {
       console.error(e);

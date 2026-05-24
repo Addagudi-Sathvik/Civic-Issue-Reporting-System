@@ -5,7 +5,7 @@ const User = require("../models/User");
 // ─── GET /api/department/issues ───────────────────────────────────────────────
 // Department sees only their own department's issues
 const getDepartmentIssues = async (req, res) => {
-  const { status, priority, page = 1, limit = 10 } = req.query;
+  const { status, priority, page = 1, limit = 100 } = req.query;
 
   // BUG FIX: req.user.department was never checked — dept users saw all issues
   if (!req.user.department) {
@@ -16,8 +16,8 @@ const getDepartmentIssues = async (req, res) => {
   }
 
   const filter = { department: req.user.department };
-  if (status) filter.status = status;
-  if (priority) filter.priority = priority;
+  if (status) filter.status = String(status).toLowerCase();
+  if (priority) filter.priority = String(priority).toLowerCase();
 
   const skip = (Number(page) - 1) * Number(limit);
   const total = await Issue.countDocuments(filter);
@@ -28,6 +28,8 @@ const getDepartmentIssues = async (req, res) => {
     .sort({ createdAt: -1 })
     .skip(skip)
     .limit(Number(limit));
+
+  console.log("Issues fetched:", issues.length);
 
   res.status(200).json({
     success: true,
@@ -42,7 +44,8 @@ const getDepartmentIssues = async (req, res) => {
 
 // ─── PUT /api/department/issues/:id/status ─────────────────────────────────────
 const updateIssueStatus = async (req, res) => {
-  const { status, adminNote } = req.body;
+  const { adminNote } = req.body;
+  const status = req.body.status?.toLowerCase();
 
   const allowedStatuses = ["in_progress", "resolved", "rejected"];
   if (!status || !allowedStatuses.includes(status)) {

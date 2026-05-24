@@ -40,11 +40,11 @@ interface NearbyMapProps {
 
 const getMarkerColor = (status: string) => {
   switch (status) {
-    case 'PENDING':
+    case 'pending':
       return '#f59e0b'; // yellow
-    case 'VERIFIED':
+    case 'in_progress':
       return '#3b82f6'; // blue
-    case 'RESOLVED':
+    case 'resolved':
       return '#10b981'; // green
     default:
       return '#ef4444'; // red
@@ -126,9 +126,9 @@ export default function NearbyMapClient({ issues, userLocation }: NearbyMapProps
                   </p>
                   <div className="flex items-center justify-between text-xs">
                     <span className={`px-2 py-1 rounded-full font-medium ${
-                      issue.status === 'PENDING' ? 'bg-yellow-500/20 text-yellow-700' :
-                      issue.status === 'VERIFIED' ? 'bg-blue-500/20 text-blue-700' :
-                      issue.status === 'RESOLVED' ? 'bg-green-500/20 text-green-700' :
+                      issue.status === 'pending' ? 'bg-yellow-500/20 text-yellow-700' :
+                      issue.status === 'in_progress' ? 'bg-blue-500/20 text-blue-700' :
+                      issue.status === 'resolved' ? 'bg-green-500/20 text-green-700' :
                       'bg-red-500/20 text-red-700'
                     }`}>
                       {issue.status}

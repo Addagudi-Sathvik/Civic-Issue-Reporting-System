@@ -11,10 +11,14 @@ export default function ResolvedIssues() {
   const fetchIssues = async () => {
     try {
       const response = await api.get("/issues");
-      const assignedIssues = response.data.filter((i: any) => i.status === "RESOLVED");
+      console.log("Fetched data:", response.data);
+      const fetchedIssues = response.data.issues || response.data;
+      const assignedIssues = Array.isArray(fetchedIssues)
+        ? fetchedIssues.filter((i: any) => i.status === "resolved")
+        : [];
       setIssues(assignedIssues);
-    } catch (error) {
-      console.error(error);
+    } catch (error: any) {
+      console.log("Fetch Error:", error.response?.data || error.message);
     } finally {
       setLoading(false);
     }

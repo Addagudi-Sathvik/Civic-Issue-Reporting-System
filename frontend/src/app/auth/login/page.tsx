@@ -26,12 +26,13 @@ export default function LoginPage() {
       login(response.data.user, response.data.token);
       
       // Redirect based on role
-      const role = response.data.user.role;
-      if (role === "ADMIN") router.push("/admin");
-      else if (role === "DEPARTMENT") router.push("/department");
+      const role = response.data.user.role?.toLowerCase();
+      if (role === "admin") router.push("/admin");
+      else if (role === "department") router.push("/department");
       else router.push("/dashboard");
       
     } catch (err: any) {
+      console.log("Login Error:", err.response?.data || err.message);
       setError(err.response?.data?.message || "An error occurred during login");
     } finally {
       setLoading(false);

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { UploadCloud, CheckCircle2, AlertTriangle, Loader2, Trash2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import API_URL from "@/config/api";
 
 interface AIValidationProps {
   category: string;
@@ -24,10 +25,6 @@ export default function AIValidation({ category, onValidationSuccess, onValidati
   const [status, setStatus] = useState<"idle" | "validating" | "success" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
   const [validationData, setValidationData] = useState<ValidationData | null>(null);
-
-  // ✅ Works in both local & deployed
-  const BASE_URL =
-    process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:5000";
 
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -57,7 +54,7 @@ export default function AIValidation({ category, onValidationSuccess, onValidati
 
     try {
       const formData = new FormData();
-      formData.append("media", selectedFile);
+      formData.append("image", selectedFile);
       formData.append("category", category);
 
       const token =
@@ -66,15 +63,18 @@ export default function AIValidation({ category, onValidationSuccess, onValidati
           : null;
 
       const response = await fetch(
-        `${BASE_URL}/api/issues/validate-image`,
+        `${API_URL}/api/issues/validate`,
         {
           method: "POST",
           headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          credentials: "include",
           body: formData, // ❗ DO NOT set content-type manually
         }
       );
 
-      const data = await response.json();
+      const data = await response.json().catch(() => ({
+        message: `Validation request failed with status ${response.status}`,
+      }));
 
       setValidationData(data);
 
@@ -86,8 +86,8 @@ export default function AIValidation({ category, onValidationSuccess, onValidati
         setErrorMsg(data.message || "Validation failed");
         onValidationFail();
       }
-    } catch (err: any) {
-      console.error("Validation error:", err);
+    } catch (error: any) {
+      console.log("Validation Error:", error.response?.data || error.message);
 
       setStatus("error");
       setErrorMsg("❌ Cannot reach validation server");

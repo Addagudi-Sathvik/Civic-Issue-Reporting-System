@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 import { MapPin, Clock, ThumbsUp, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
 import { useState } from "react";
+import API_URL from "@/config/api";
 
 interface Issue {
   _id: string;
@@ -27,17 +28,13 @@ interface IssueCardProps {
   onSupport: () => void;
 }
 
-// ✅ BASE URL (works in local + production)
-const BASE_URL =
-  process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:5000";
-
 const getStatusIcon = (status: string) => {
   switch (status) {
-    case "PENDING":
+    case "pending":
       return <Clock size={16} className="text-yellow-500" />;
-    case "VERIFIED":
+    case "in_progress":
       return <CheckCircle size={16} className="text-blue-500" />;
-    case "RESOLVED":
+    case "resolved":
       return <CheckCircle size={16} className="text-green-500" />;
     default:
       return <XCircle size={16} className="text-red-500" />;
@@ -46,11 +43,11 @@ const getStatusIcon = (status: string) => {
 
 const getStatusColor = (status: string) => {
   switch (status) {
-    case "PENDING":
+    case "pending":
       return "bg-yellow-500/20 text-yellow-700 border-yellow-500/30";
-    case "VERIFIED":
+    case "in_progress":
       return "bg-blue-500/20 text-blue-700 border-blue-500/30";
-    case "RESOLVED":
+    case "resolved":
       return "bg-green-500/20 text-green-700 border-green-500/30";
     default:
       return "bg-red-500/20 text-red-700 border-red-500/30";
@@ -59,9 +56,9 @@ const getStatusColor = (status: string) => {
 
 const getPriorityColor = (priority: string) => {
   switch (priority) {
-    case "HIGH":
+    case "high":
       return "bg-red-500/20 text-red-700";
-    case "MEDIUM":
+    case "medium":
       return "bg-yellow-500/20 text-yellow-700";
     default:
       return "bg-green-500/20 text-green-700";
@@ -70,11 +67,11 @@ const getPriorityColor = (priority: string) => {
 
 const getCategoryDisplay = (category: string) => {
   const categoryMap: { [key: string]: string } = {
-    ROADS: "Roads & Transport",
-    GARBAGE: "Waste & Garbage",
-    ELECTRICITY: "Electricity",
-    WATER: "Water Management",
-    OTHER: "Other Issues",
+    roads: "Roads & Transport",
+    sanitation: "Waste & Garbage",
+    electricity: "Electricity",
+    water: "Water Management",
+    other: "Other Issues",
   };
   return categoryMap[category] || category;
 };
@@ -115,7 +112,7 @@ export default function IssueCard({ issue, onSupport }: IssueCardProps) {
       {issue.media && issue.media.length > 0 && !imageError ? (
         <div className="w-full h-32 rounded-lg overflow-hidden mb-4 bg-slate-100">
           <img
-            src={`${BASE_URL}${issue.media[0]}`} // ✅ FIXED
+            src={`${API_URL}${issue.media[0]}`} // ✅ FIXED
             alt={issue.title}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
             onError={() => setImageError(true)}

@@ -42,7 +42,7 @@ export default function DepartmentSettings() {
                   <HardHat size={40} />
                </div>
                <h3 className="font-bold text-xl">{user?.name || "Department User"}</h3>
-               <p className="text-foreground/60 text-sm">{user?.role === "DEPARTMENT" ? "Supervisor" : ""}</p>
+               <p className="text-foreground/60 text-sm">{user?.role === "department" ? "Supervisor" : ""}</p>
             </div>
          </motion.div>
 

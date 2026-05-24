@@ -14,9 +14,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // Check user role and redirect if needed
   useEffect(() => {
     if (user) {
-      if (user.role === 'ADMIN') {
+      if (user.role === 'admin') {
         router.push('/admin');
-      } else if (user.role === 'DEPARTMENT') {
+      } else if (user.role === 'department') {
         router.push('/department');
       }
     }

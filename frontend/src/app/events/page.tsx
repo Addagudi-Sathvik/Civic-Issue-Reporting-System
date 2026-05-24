@@ -69,13 +69,15 @@ export default function NearbyIssuesPage() {
         const response = await api.post("/issues/nearby", {
           lat: location.lat,
           lng: location.lng,
-          category: filters.category !== "ALL" ? filters.category : undefined,
+          category: filters.category !== "ALL" ? filters.category.toLowerCase() : undefined,
           radiusKm: filters.radius,
         });
+        console.log("Fetched data:", response.data);
 
-        const issuesWithDistance = response.data
+        const fetchedIssues = response.data.issues || response.data;
+        const issuesWithDistance = (Array.isArray(fetchedIssues) ? fetchedIssues : [])
           .filter((issue: Issue) => {
-            if (filters.status !== "ALL" && issue.status !== filters.status) return false;
+            if (filters.status !== "ALL" && issue.status !== filters.status.toLowerCase()) return false;
             return true;
           })
           .map((issue: Issue) => ({
@@ -85,8 +87,8 @@ export default function NearbyIssuesPage() {
           .sort((a: Issue, b: Issue) => (a.distance || 0) - (b.distance || 0));
 
         setIssues(issuesWithDistance);
-      } catch (error) {
-        console.error("Failed to fetch nearby issues:", error);
+      } catch (error: any) {
+        console.log("Fetch Error:", error.response?.data || error.message);
       } finally {
         setLoading(false);
       }

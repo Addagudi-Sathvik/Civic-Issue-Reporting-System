@@ -28,17 +28,19 @@ export default function NearbyIssues({ lat, lng, category, onReposted }: NearbyI
         const response = await api.post("/issues/nearby", {
           lat,
           lng,
-          category,
+          category: category.toLowerCase(),
           radiusKm: 3,
         });
+        console.log("Fetched data:", response.data);
 
-        if (Array.isArray(response.data)) {
-          setIssues(response.data);
+        const fetchedIssues = response.data.issues || response.data;
+        if (Array.isArray(fetchedIssues)) {
+          setIssues(fetchedIssues);
         } else {
           setIssues([]);
         }
       } catch (err: any) {
-        console.error("Failed to load nearby issues:", err?.response || err);
+        console.log("Fetch Error:", err.response?.data || err.message);
         setIssues([]);
       } finally {
         setLoading(false);

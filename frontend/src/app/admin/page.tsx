@@ -28,7 +28,7 @@ interface ToastMessage {
 }
 
 export default function AdminOverview() {
-  const [filter, setFilter] = useState("PENDING_VERIFICATION");
+  const [filter, setFilter] = useState("all");
   const [issues, setIssues] = useState<Issue[]>([]);
   const [loading, setLoading] = useState(true);
   const [departmentUsers, setDepartmentUsers] = useState<any[]>([]);
@@ -46,10 +46,12 @@ export default function AdminOverview() {
   const fetchIssues = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await api.get(`/admin/issues?status=${filter}`);
+      const query = filter === "all" ? "" : `?status=${filter}`;
+      const response = await api.get(`/admin/issues${query}`);
+      console.log("Fetched data:", response.data);
       setIssues(response.data.issues || response.data);
     } catch (error: any) {
-      console.error("Failed to fetch issues", error);
+      console.log("Fetch Error:", error.response?.data || error.message);
       showToast("Failed to load issues: " + (error.response?.data?.message || "Server error"), 'error');
     } finally {
       setLoading(false);
@@ -59,9 +61,10 @@ export default function AdminOverview() {
   const fetchDepartmentUsers = useCallback(async () => {
     try {
       const response = await api.get('/admin/department-users');
+      console.log("Fetched data:", response.data);
       setDepartmentUsers(response.data);
     } catch (error: any) {
-      console.error("Failed to fetch department users", error);
+      console.log("Fetch Error:", error.response?.data || error.message);
     }
   }, []);
 
@@ -134,20 +137,18 @@ export default function AdminOverview() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'PENDING_VERIFICATION': return 'bg-yellow-500/20 text-yellow-700 border border-yellow-300';
-      case 'VERIFIED': return 'bg-blue-500/20 text-blue-700 border border-blue-300';
-      case 'ASSIGNED': return 'bg-purple-500/20 text-purple-700 border border-purple-300';
-      case 'IN_PROGRESS': return 'bg-orange-500/20 text-orange-700 border border-orange-300';
-      case 'RESOLVED': return 'bg-green-500/20 text-green-700 border border-green-300';
-      case 'REJECTED': return 'bg-red-500/20 text-red-700 border border-red-300';
+      case 'pending': return 'bg-yellow-500/20 text-yellow-700 border border-yellow-300';
+      case 'in_progress': return 'bg-orange-500/20 text-orange-700 border border-orange-300';
+      case 'resolved': return 'bg-green-500/20 text-green-700 border border-green-300';
+      case 'rejected': return 'bg-red-500/20 text-red-700 border border-red-300';
       default: return 'bg-gray-500/20 text-gray-700 border border-gray-300';
     }
   };
 
   const stats = [
     { label: "Total Issues", value: issues.length, icon: <AlertCircle size={24} className="text-blue-500" /> },
-    { label: "Pending Verification", value: issues.filter(i => i.verificationStatus === "PENDING").length, icon: <Clock size={24} className="text-yellow-500" /> },
-    { label: "Resolved", value: issues.filter(i => i.status === "RESOLVED").length, icon: <CheckCircle size={24} className="text-green-500" /> },
+    { label: "Pending", value: issues.filter(i => i.status === "pending").length, icon: <Clock size={24} className="text-yellow-500" /> },
+    { label: "Resolved", value: issues.filter(i => i.status === "resolved").length, icon: <CheckCircle size={24} className="text-green-500" /> },
   ];
 
   return (
@@ -198,12 +199,11 @@ export default function AdminOverview() {
              onChange={(e) => setFilter(e.target.value)}
              className="glass-input px-4 py-2 text-sm rounded-xl border border-white/20 hover:border-primary/50 transition-colors"
            >
-             <option value="PENDING_VERIFICATION">Pending Verification</option>
-             <option value="VERIFIED">Verified</option>
-             <option value="ASSIGNED">Assigned</option>
-             <option value="IN_PROGRESS">In Progress</option>
-             <option value="RESOLVED">Resolved</option>
-             <option value="REJECTED">Rejected</option>
+              <option value="all">All Issues</option>
+              <option value="pending">Pending</option>
+              <option value="in_progress">In Progress</option>
+              <option value="resolved">Resolved</option>
+              <option value="rejected">Rejected</option>
            </select>
         </div>
 
@@ -244,7 +244,7 @@ export default function AdminOverview() {
                 </div>
 
                 <div className="flex gap-2 flex-wrap justify-end">
-                  {item.verificationStatus === 'PENDING' && (
+                    {item.status === 'pending' && (
                     <>
                       <motion.button
                         whileHover={{ scale: 1.05 }}
@@ -266,7 +266,7 @@ export default function AdminOverview() {
                       </motion.button>
                     </>
                   )}
-                  {item.status === 'VERIFIED' && !item.assignedDepartmentId && (
+                    {item.status === 'pending' && !item.assignedDepartmentId && (
                     <motion.button
                       whileHover={{ scale: 1.05 }}
                       onClick={() => setAssignModal({ isOpen: true, issueId: item._id, dept: '' })}

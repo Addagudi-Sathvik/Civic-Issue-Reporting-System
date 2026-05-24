@@ -48,6 +48,7 @@ const register = async (req, res) => {
     success: true,
     token,
     user: {
+      id: user._id,
       _id: user._id,
       name: user.name,
       email: user.email,
@@ -59,42 +60,48 @@ const register = async (req, res) => {
 
 // ─── POST /api/auth/login ─────────────────────────────────────────────────────
 const login = async (req, res) => {
-  const { email, password } = req.body;
+  try {
+    const { email, password } = req.body;
 
-  if (!email || !password) {
-    return res
-      .status(400)
-      .json({ success: false, message: "Email and password are required." });
+    if (!email || !password) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Email and password are required." });
+    }
+
+    // BUG FIX: must use .select("+password") since password is select:false
+    const user = await User.findOne({ email }).select("+password");
+
+    if (!user || !(await user.matchPassword(password))) {
+      return res
+        .status(401)
+        .json({ success: false, message: "Invalid email or password." });
+    }
+
+    if (!user.isActive) {
+      return res
+        .status(403)
+        .json({ success: false, message: "Account deactivated. Contact admin." });
+    }
+
+    const token = generateToken(user._id);
+
+    res.status(200).json({
+      success: true,
+      token,
+      user: {
+        id: user._id,
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        department: user.department,
+      },
+    });
+  } catch (error) {
+    console.log("Backend Login Error:", error);
+    res.status(500).json({ success: false, message: "Login failed. Please try again." });
   }
-
-  // BUG FIX: must use .select("+password") since password is select:false
-  const user = await User.findOne({ email }).select("+password");
-
-  if (!user || !(await user.matchPassword(password))) {
-    return res
-      .status(401)
-      .json({ success: false, message: "Invalid email or password." });
-  }
-
-  if (!user.isActive) {
-    return res
-      .status(403)
-      .json({ success: false, message: "Account deactivated. Contact admin." });
-  }
-
-  const token = generateToken(user._id);
-
-  res.status(200).json({
-    success: true,
-    token,
-    user: {
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      department: user.department,
-    },
-  });
 };
 
 // ─── GET /api/auth/me ─────────────────────────────────────────────────────────

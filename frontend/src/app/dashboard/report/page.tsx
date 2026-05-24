@@ -14,7 +14,7 @@ export default function ReportIssue() {
   const router = useRouter();
 
   // Form State
-  const [category, setCategory] = useState("ROADS");
+  const [category, setCategory] = useState("roads");
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -127,11 +127,11 @@ export default function ReportIssue() {
                    disabled={step > 1}
                    className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all appearance-none font-medium"
                 >
-                   <option value="ROADS" className="text-black">Roads & Transport</option>
-                   <option value="WATER" className="text-black">Water Management</option>
-                   <option value="GARBAGE" className="text-black">Waste & Garbage</option>
-                   <option value="ELECTRICITY" className="text-black">Electricity</option>
-                   <option value="OTHER" className="text-black">Other</option>
+                   <option value="roads" className="text-black">Roads & Transport</option>
+                   <option value="water" className="text-black">Water Management</option>
+                   <option value="sanitation" className="text-black">Waste & Garbage</option>
+                   <option value="electricity" className="text-black">Electricity</option>
+                   <option value="other" className="text-black">Other</option>
                 </select>
               </div>
 

@@ -9,9 +9,26 @@ dotenv.config();
 
 const app = express();
 
+const allowedOrigins = [
+  'http://localhost:3000',
+  'https://civic-issue-reporting-system.vercel.app',
+  process.env.FRONTEND_URL,
+  process.env.VERCEL_FRONTEND_URL,
+].filter(Boolean);
+
 // ✅ CORS (allow frontend)
 const corsOptions = {
-  origin: true,
+  origin(origin, callback) {
+    if (
+      !origin ||
+      allowedOrigins.includes(origin) ||
+      /^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(origin)
+    ) {
+      return callback(null, true);
+    }
+
+    return callback(new Error(`CORS blocked origin: ${origin}`));
+  },
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
@@ -43,9 +60,24 @@ app.get('/api/health', (req, res) => {
 
 // ✅ MongoDB connection
 const PORT = process.env.PORT || 5000;
-const MONGO_URI =
-  process.env.MONGO_URI ||
-  'mongodb://127.0.0.1:27017/civic_issue_db';
+const MONGO_URI = process.env.MONGO_URI;
+
+if (!MONGO_URI) {
+  console.log('MongoDB Error:', 'MONGO_URI is not set');
+  process.exit(1);
+}
+
+const getSafeMongoInfo = (uri) => {
+  try {
+    const parsed = new URL(uri);
+    return {
+      host: parsed.host,
+      database: parsed.pathname.replace('/', '') || '(default)',
+    };
+  } catch {
+    return { host: 'unknown', database: 'unknown' };
+  }
+};
 
 if (!process.env.MONGO_URI) {
   console.warn(
@@ -54,8 +86,12 @@ if (!process.env.MONGO_URI) {
 }
 
 mongoose
-  .connect(MONGO_URI)
+  .connect(process.env.MONGO_URI)
   .then(() => {
+    const mongoInfo = getSafeMongoInfo(process.env.MONGO_URI);
+    console.log('MongoDB Connected');
+    console.log(`MongoDB Host: ${mongoInfo.host}`);
+    console.log(`MongoDB Database: ${mongoose.connection.name || mongoInfo.database}`);
     console.log('✅ Connected to MongoDB');
 
     app.listen(PORT, () => {
@@ -63,6 +99,7 @@ mongoose
     });
   })
   .catch((err) => {
+    console.log('MongoDB Error:', err);
     console.error('❌ MongoDB connection error:', err);
     process.exit(1);
   });

@@ -12,8 +12,8 @@ export default function RegisterPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState("USER"); // USER, DEPARTMENT, ADMIN
-  const [departmentType, setDepartmentType] = useState("ROADS");
+  const [role, setRole] = useState("citizen");
+  const [departmentType, setDepartmentType] = useState("roads");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   
@@ -31,17 +31,18 @@ export default function RegisterPage() {
         email,
         password,
         role,
-        ...(role === "DEPARTMENT" && { departmentType }),
+        ...(role === "department" && { department: departmentType }),
       };
 
       const response = await api.post("/auth/register", payload);
       login(response.data.user, response.data.token);
       
-      if (role === "ADMIN") router.push("/admin");
-      else if (role === "DEPARTMENT") router.push("/department");
+      if (role === "admin") router.push("/admin");
+      else if (role === "department") router.push("/department");
       else router.push("/dashboard");
 
     } catch (err: any) {
+      console.log("Register Error:", err.response?.data || err.message);
       setError(err.response?.data?.message || "An error occurred during registration");
     } finally {
       setLoading(false);
@@ -114,22 +115,22 @@ export default function RegisterPage() {
             <div className="grid grid-cols-2 gap-3">
               <button
                 type="button"
-                onClick={() => setRole("USER")}
-                className={`py-2 rounded-xl border transition-all ${role === "USER" ? "bg-primary text-white border-primary shadow-md" : "bg-white/20 border-white/20 text-foreground hover:bg-white/40"}`}
+                onClick={() => setRole("citizen")}
+                className={`py-2 rounded-xl border transition-all ${role === "citizen" ? "bg-primary text-white border-primary shadow-md" : "bg-white/20 border-white/20 text-foreground hover:bg-white/40"}`}
               >
                 Citizen
               </button>
               <button
                 type="button"
-                onClick={() => setRole("DEPARTMENT")}
-                className={`py-2 rounded-xl border transition-all flex items-center justify-center gap-2 ${role === "DEPARTMENT" ? "bg-primary text-white border-primary shadow-md" : "bg-white/20 border-white/20 text-foreground hover:bg-white/40"}`}
+                onClick={() => setRole("department")}
+                className={`py-2 rounded-xl border transition-all flex items-center justify-center gap-2 ${role === "department" ? "bg-primary text-white border-primary shadow-md" : "bg-white/20 border-white/20 text-foreground hover:bg-white/40"}`}
               >
                  Department
               </button>
             </div>
           </div>
 
-          {role === "DEPARTMENT" && (
+          {role === "department" && (
             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} className="mt-2">
                <label className="text-sm text-foreground/80 font-medium mb-1 block">Department Type:</label>
                <div className="relative">
@@ -139,11 +140,11 @@ export default function RegisterPage() {
                     onChange={(e) => setDepartmentType(e.target.value)}
                     className="w-full glass-input pl-12 py-3 appearance-none cursor-pointer"
                  >
-                   <option value="ROADS" className="text-black">Roads & Transport</option>
-                   <option value="WATER" className="text-black">Water Management</option>
-                   <option value="GARBAGE" className="text-black">Waste & Garbage</option>
-                   <option value="ELECTRICITY" className="text-black">Electricity</option>
-                   <option value="OTHER" className="text-black">Other</option>
+                   <option value="roads" className="text-black">Roads & Transport</option>
+                   <option value="water" className="text-black">Water Management</option>
+                   <option value="sanitation" className="text-black">Waste & Garbage</option>
+                   <option value="electricity" className="text-black">Electricity</option>
+                   <option value="other" className="text-black">Other</option>
                  </select>
                </div>
             </motion.div>

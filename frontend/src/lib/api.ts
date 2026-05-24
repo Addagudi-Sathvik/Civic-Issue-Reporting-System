@@ -1,10 +1,10 @@
 import axios from 'axios';
+import API_URL from '@/config/api';
 
-// Use environment variable instead of localhost
-const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL;
-
+// Create axios instance with centralized API URL
 const api = axios.create({
-  baseURL: `${BASE_URL}/api`,
+  baseURL: `${API_URL}/api`,
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
