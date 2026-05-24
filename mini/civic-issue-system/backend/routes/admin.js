@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const adminController = require('../controllers/adminController');
-const { authMiddleware, requireRole } = require('../middlewares/auth');
+const { protect, authorize } = require('../middlewares/auth');
 
 /**
  * ADMIN ROUTES
@@ -9,24 +9,24 @@ const { authMiddleware, requireRole } = require('../middlewares/auth');
  */
 
 // Get all issues with filters (status, priority, category, verificationStatus)
-router.get('/issues', authMiddleware, requireRole(['ADMIN']), adminController.getIssuesForAdmin);
+router.get('/issues', protect, authorize('admin'), adminController.getIssuesForAdmin);
 
 // Get detailed issue information with activity log
-router.get('/issues/:id', authMiddleware, requireRole(['ADMIN']), adminController.getIssueDetail);
+router.get('/issues/:id', protect, authorize('admin'), adminController.getIssueDetail);
 
 // Approve issue (verification)
-router.post('/approve', authMiddleware, requireRole(['ADMIN']), adminController.approveIssue);
+router.post('/approve', protect, authorize('admin'), adminController.approveIssue);
 
 // Reject issue
-router.post('/reject', authMiddleware, requireRole(['ADMIN']), adminController.rejectIssue);
+router.post('/reject', protect, authorize('admin'), adminController.rejectIssue);
 
 // Assign issue to department
-router.post('/assign', authMiddleware, requireRole(['ADMIN']), adminController.assignDepartment);
+router.post('/assign', protect, authorize('admin'), adminController.assignDepartment);
 
 // Get admin dashboard statistics
-router.get('/stats', authMiddleware, requireRole(['ADMIN']), adminController.getAdminStats);
+router.get('/stats', protect, authorize('admin'), adminController.getAdminStats);
 
 // Get all department users for assignment
-router.get('/department-users', authMiddleware, requireRole(['ADMIN']), adminController.getDepartmentUsers);
+router.get('/department-users', protect, authorize('admin'), adminController.getDepartmentUsers);
 
 module.exports = router;

@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const departmentController = require('../controllers/departmentController');
-const { authMiddleware, requireRole } = require('../middlewares/auth');
+const { protect, authorize } = require('../middlewares/auth');
 const upload = require('../middlewares/upload');
 
 /**
@@ -10,18 +10,18 @@ const upload = require('../middlewares/upload');
  */
 
 // Get issues assigned to this department
-router.get('/issues', authMiddleware, requireRole(['DEPARTMENT']), departmentController.getDepartmentIssues);
+router.get('/issues', protect, authorize('department'), departmentController.getDepartmentIssues);
 
 // Update issue status (ASSIGNED → IN_PROGRESS → RESOLVED)
-router.patch('/issues/:id/status', authMiddleware, requireRole(['DEPARTMENT']), departmentController.updateIssueStatus);
+router.patch('/issues/:id/status', protect, authorize('department'), departmentController.updateIssueStatus);
 
 // Upload proof of completion
-router.post('/issues/:id/proof', authMiddleware, requireRole(['DEPARTMENT']), upload.array('proof', 5), departmentController.uploadProof);
+router.post('/issues/:id/proof', protect, authorize('department'), upload.array('proof', 5), departmentController.uploadProof);
 
 // Get department dashboard statistics
-router.get('/stats', authMiddleware, requireRole(['DEPARTMENT']), departmentController.getDepartmentStats);
+router.get('/stats', protect, authorize('department'), departmentController.getDepartmentStats);
 
 // Get activity log for department issues
-router.get('/activity', authMiddleware, requireRole(['DEPARTMENT']), departmentController.getDepartmentActivity);
+router.get('/activity', protect, authorize('department'), departmentController.getDepartmentActivity);
 
 module.exports = router;

@@ -3,10 +3,10 @@ const Issue = require('../models/Issue');
 const ActivityLog = require('../models/ActivityLog');
 
 // Add confirmation to an issue
-exports.addConfirmation = async (req, res) => {
+const addConfirmation = async (req, res) => {
   try {
     const issueId = req.params.id;
-    const userId = req.user.userId;
+    const userId = req.user._id;
     const { confidence } = req.body;
 
     // Check if issue exists
@@ -58,7 +58,7 @@ exports.addConfirmation = async (req, res) => {
 };
 
 // Get confirmations for an issue
-exports.getIssueConfirmations = async (req, res) => {
+const getIssueConfirmations = async (req, res) => {
   try {
     const issueId = req.params.id;
 
@@ -73,9 +73,9 @@ exports.getIssueConfirmations = async (req, res) => {
 };
 
 // Get user's confirmations
-exports.getUserConfirmations = async (req, res) => {
+const getUserConfirmations = async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const userId = req.user._id;
 
     const confirmations = await Confirmation.find({ userId })
       .populate('issueId', 'title category status')
@@ -85,4 +85,10 @@ exports.getUserConfirmations = async (req, res) => {
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
+};
+
+module.exports = {
+  addConfirmation,
+  getIssueConfirmations,
+  getUserConfirmations,
 };

@@ -310,6 +310,293 @@ const getStats = async (req, res) => {
   });
 };
 
+// ─── GET /api/issues/nearby ───────────────────────────────────────────────────
+const getNearbyIssues = async (req, res) => {
+  const { latitude, longitude, radius = 5 } = req.query;
+
+  if (!latitude || !longitude) {
+    return res.status(400).json({
+      success: false,
+      message: "Latitude and longitude are required.",
+    });
+  }
+
+  try {
+    const issues = await Issue.find({
+      'location.coordinates': {
+        $near: {
+          $geometry: {
+            type: 'Point',
+            coordinates: [parseFloat(longitude), parseFloat(latitude)],
+          },
+          $maxDistance: parseFloat(radius) * 1000, // Convert km to meters
+        },
+      },
+    }).populate('reportedBy', 'name email');
+
+    res.status(200).json({ success: true, issues });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: "Error fetching nearby issues.",
+      error: error.message,
+    });
+  }
+};
+
+// ─── POST /api/issues/:id/vote ────────────────────────────────────────────────
+const voteIssue = async (req, res) => {
+  const issue = await Issue.findById(req.params.id);
+
+  if (!issue) {
+    return res.status(404).json({
+      success: false,
+      message: "Issue not found.",
+    });
+  }
+
+  // Check if user already voted
+  const hasVoted = issue.votes && issue.votes.includes(req.user._id);
+  if (hasVoted) {
+    return res.status(400).json({
+      success: false,
+      message: "You have already voted for this issue.",
+    });
+  }
+
+  // Add vote
+  if (!issue.votes) issue.votes = [];
+  issue.votes.push(req.user._id);
+  await issue.save();
+
+  res.status(200).json({
+    success: true,
+    message: "Vote recorded.",
+    votes: issue.votes.length,
+  });
+};
+
+// ─── POST /api/issues/validate ────────────────────────────────────────────────
+const validateImage = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "No image provided.",
+      });
+    }
+
+    // Image is validated by multer fileFilter middleware
+    res.status(200).json({
+      success: true,
+      message: "Image is valid.",
+      filename: req.file.filename,
+      path: `/uploads/${req.file.filename}`,
+    });
+  } catch (error) {
+    res.status(400).json({
+      success: false,
+      message: "Image validation failed.",
+      error: error.message,
+    });
+  }
+};
+
+// ─── PATCH /api/issues/:id/approve ────────────────────────────────────────────
+const approveIssue = async (req, res) => {
+  const issue = await Issue.findById(req.params.id);
+
+  if (!issue) {
+    return res.status(404).json({
+      success: false,
+      message: "Issue not found.",
+    });
+  }
+
+  issue.status = "verified";
+  issue.verifiedAt = new Date();
+  issue.verifiedBy = req.user._id;
+
+  await issue.save();
+
+  const updated = await Issue.findById(issue._id)
+    .populate("reportedBy", "name email")
+    .populate("verifiedBy", "name email");
+
+  res.status(200).json({ success: true, issue: updated });
+};
+
+// ─── PATCH /api/issues/:id/reject ────────────────────────────────────────────
+const rejectIssue = async (req, res) => {
+  const { reason } = req.body;
+
+  const issue = await Issue.findById(req.params.id);
+
+  if (!issue) {
+    return res.status(404).json({
+      success: false,
+      message: "Issue not found.",
+    });
+  }
+
+  issue.status = "rejected";
+  issue.rejectionReason = reason || "";
+  issue.rejectedAt = new Date();
+  issue.rejectedBy = req.user._id;
+
+  await issue.save();
+
+  const updated = await Issue.findById(issue._id)
+    .populate("reportedBy", "name email")
+    .populate("rejectedBy", "name email");
+
+  res.status(200).json({ success: true, issue: updated });
+};
+
+// ─── PATCH /api/issues/:id/assign ────────────────────────────────────────────
+const assignDepartment = async (req, res) => {
+  const { assignedTo, department, priority } = req.body;
+
+  const issue = await Issue.findById(req.params.id);
+
+  if (!issue) {
+    return res.status(404).json({
+      success: false,
+      message: "Issue not found.",
+    });
+  }
+
+  if (assignedTo) {
+    const assignee = await require("../models/User").findById(assignedTo);
+    if (!assignee || assignee.role !== "department") {
+      return res.status(400).json({
+        success: false,
+        message: "Assignee must be a valid department user.",
+      });
+    }
+  }
+
+  issue.assignedTo = assignedTo || null;
+  issue.department = department || issue.department;
+  issue.priority = priority || issue.priority;
+  issue.status = "assigned";
+
+  await issue.save();
+
+  const updated = await Issue.findById(issue._id)
+    .populate("reportedBy", "name email")
+    .populate("assignedTo", "name email department");
+
+  res.status(200).json({ success: true, issue: updated });
+};
+
+// ─── PATCH /api/issues/:id/status ────────────────────────────────────────────
+const updateDepartmentStatus = async (req, res) => {
+  const { status, adminNote } = req.body;
+
+  const allowedStatuses = ["in_progress", "resolved", "rejected"];
+  if (!status || !allowedStatuses.includes(status)) {
+    return res.status(400).json({
+      success: false,
+      message: `Invalid status. Allowed values: ${allowedStatuses.join(", ")}`,
+    });
+  }
+
+  const issue = await Issue.findById(req.params.id);
+
+  if (!issue) {
+    return res.status(404).json({
+      success: false,
+      message: "Issue not found.",
+    });
+  }
+
+  // Department users can only update their own department's issues
+  if (
+    req.user.role === "department" &&
+    issue.department !== req.user.department
+  ) {
+    return res.status(403).json({
+      success: false,
+      message: "Not authorized to update issues outside your department.",
+    });
+  }
+
+  issue.status = status;
+  if (adminNote) issue.adminNote = adminNote;
+  if (status === "resolved") issue.resolvedAt = new Date();
+
+  await issue.save();
+
+  const updated = await Issue.findById(issue._id)
+    .populate("reportedBy", "name email")
+    .populate("assignedTo", "name email");
+
+  res.status(200).json({ success: true, issue: updated });
+};
+
+// ─── GET /api/issues/filter/status ────────────────────────────────────────────
+const getIssuesByStatus = async (req, res) => {
+  const { status, page = 1, limit = 10 } = req.query;
+
+  if (!status) {
+    return res.status(400).json({
+      success: false,
+      message: "Status filter is required.",
+    });
+  }
+
+  const validStatuses = ["pending", "verified", "assigned", "in_progress", "resolved", "rejected"];
+  if (!validStatuses.includes(status)) {
+    return res.status(400).json({
+      success: false,
+      message: `Invalid status. Allowed values: ${validStatuses.join(", ")}`,
+    });
+  }
+
+  let filter = { status };
+
+  if (req.user.role === "citizen") {
+    filter.reportedBy = req.user._id;
+  } else if (req.user.role === "department") {
+    filter.department = req.user.department;
+  }
+
+  const skip = (Number(page) - 1) * Number(limit);
+  const total = await Issue.countDocuments(filter);
+
+  const issues = await Issue.find(filter)
+    .populate("reportedBy", "name email")
+    .populate("assignedTo", "name email")
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(Number(limit));
+
+  res.status(200).json({
+    success: true,
+    count: issues.length,
+    total,
+    totalPages: Math.ceil(total / Number(limit)),
+    currentPage: Number(page),
+    issues,
+  });
+};
+
+// ─── GET /api/issues/:id/logs ─────────────────────────────────────────────────
+const getIssueActivityLogs = async (req, res) => {
+  const ActivityLog = require("../models/ActivityLog");
+
+  const logs = await ActivityLog.find({ issueId: req.params.id })
+    .populate("performedBy", "name email role")
+    .sort({ createdAt: -1 });
+
+  if (!logs) {
+    return res.status(200).json({ success: true, logs: [] });
+  }
+
+  res.status(200).json({ success: true, logs });
+};
+
 module.exports = {
   getIssues,
   getIssueById,
@@ -318,4 +605,13 @@ module.exports = {
   deleteIssue,
   addComment,
   getStats,
+  getNearbyIssues,
+  voteIssue,
+  validateImage,
+  approveIssue,
+  rejectIssue,
+  assignDepartment,
+  updateDepartmentStatus,
+  getIssuesByStatus,
+  getIssueActivityLogs,
 };
